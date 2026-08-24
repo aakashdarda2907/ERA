@@ -1,0 +1,40 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WardAudit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'chat/style.css' %}">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">Ward<em>Audit</em></div>
+    <div class="meta">live backend · demo data only</div>
+  </header>
+  <div class="layout">
+    <div class="chat-panel">
+      <div class="chat-scroll" id="chatScroll">
+        <div class="msg bot">
+          <div class="label">WardAudit</div>
+          <div class="bubble">Ask about a cached patient, e.g. "why was patient 12522 flagged?"</div>
+        </div>
+      </div>
+      <div class="input-row">
+        <input type="text" id="msgInput" placeholder="Ask about a case…">
+        <button id="sendBtn">Ask</button>
+      </div>
+    </div>
+    <div class="ledger">
+      <h2>Evidence Ledger</h2>
+      <div class="sub">every citation used, in order</div>
+      <div id="ledgerList"><div class="ledger-empty">Click a citation chip to log it here.</div></div>
+    </div>
+  </div>
+</div>
+<script src="{% static 'chat/script.js' %}"></script>
+</body>
+</html>

@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clinical AI Audit — Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F2F4F3;
+    --ledger:#E7E2D6;
+    --ink:#16241F;
+    --ink-soft:#4B564F;
+    --hairline:#C9C2B4;
+    --verified:#2F6F62;
+    --verified-soft:#E3ECE9;
+    --flag:#B5542B;
+    --flag-soft:#F3E4DB;
+    --white:#FFFFFF;
+    --radius:10px;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    min-height:100vh;
+  }
+
+  a{color:inherit;}
+
+  .app{
+    max-width:1180px;
+    margin:0 auto;
+    padding:28px 20px 60px;
+  }
+
+  header.top{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    border-bottom:1px solid var(--hairline);
+    padding-bottom:18px;
+    margin-bottom:24px;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+
+  header.top .brand{
+    font-family:'Newsreader', serif;
+    font-size:1.5rem;
+    font-weight:600;
+    letter-spacing:-0.01em;
+  }
+  header.top .brand em{
+    font-style:italic;
+    color:var(--verified);
+  }
+
+  header.top .meta{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.72rem;
+    color:var(--ink-soft);
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+  }
+
+  .layout{
+    display:grid;
+    grid-template-columns: 1fr 300px;
+    gap:22px;
+    align-items:start;
+  }
+
+  @media (max-width: 860px){
+    .layout{grid-template-columns: 1fr;}
+    .ledger{order:2;}
+  }
+
+  /* ---------- Chat column ---------- */
+
+  .chat-panel{
+    background:var(--white);
+    border:1px solid var(--hairline);
+    border-radius:var(--radius);
+    overflow:hidden;
+  }
+
+  .chat-scroll{
+    padding:24px 24px 8px;
+    max-height:640px;
+    overflow-y:auto;
+  }
+
+  .msg{
+    margin-bottom:22px;
+    max-width:88%;
+  }
+  .msg.user{
+    margin-left:auto;
+  }
+
+  .msg .bubble{
+    padding:13px 16px;
+    border-radius:12px;
+    line-height:1.55;
+    font-size:0.94rem;
+  }
+  .msg.user .bubble{
+    background:var(--ink);
+    color:var(--paper);
+    border-bottom-right-radius:3px;
+  }
+  .msg.bot .bubble{
+    background:var(--paper);
+    border:1px solid var(--hairline);
+    border-bottom-left-radius:3px;
+  }
+
+  .msg .label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.66rem;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--ink-soft);
+    margin-bottom:6px;
+  }
+  .msg.user .label{text-align:right;}
+
+  .cite{
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    background:var(--verified-soft);
+    color:var(--verified);
+    border:1px solid rgba(47,111,98,0.35);
+    border-radius:5px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.68rem;
+    padding:1px 6px;
+    margin:0 2px;
+    cursor:pointer;
+    white-space:nowrap;
+    transition:background .12s ease;
+  }
+  .cite:hover, .cite.active{
+    background:var(--verified);
+    color:var(--white);
+  }
+
+  .cite-detail{
+    display:none;
+    margin-top:10px;
+    padding:10px 12px;
+    background:var(--white);
+    border:1px dashed var(--hairline);
+    border-radius:8px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.72rem;
+    color:var(--ink-soft);
+  }
+  .cite-detail.open{display:block;}
+  .cite-detail .k{color:var(--ink); font-weight:500;}
+
+  /* ART scorecard */
+  .art-row{
+    display:flex;
+    gap:8px;
+    margin:12px 0 4px;
+    flex-wrap:wrap;
+  }
+  .art-chip{
+    flex:1 1 auto;
+    min-width:120px;
+    background:var(--white);
+    border:1px solid var(--hairline);
+    border-radius:8px;
+    padding:8px 10px;
+  }
+  .art-chip .t{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.62rem;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--ink-soft);
+    display:flex;
+    justify-content:space-between;
+  }
+  .art-chip .v{
+    font-size:0.86rem;
+    margin-top:3px;
+    font-weight:500;
+  }
+  .art-chip .v.ok{color:var(--verified);}
+  .art-chip .v.warn{color:var(--flag);}
+
+  .lens-row{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:8px;
+    margin-top:10px;
+  }
+  @media (max-width:560px){ .lens-row{grid-template-columns:1fr;} }
+  .lens{
+    background:var(--paper);
+    border-left:3px solid var(--verified);
+    border-radius:0 6px 6px 0;
+    padding:8px 10px;
+  }
+  .lens.flagged{border-left-color:var(--flag);}
+  .lens .t{
+    font-family:'Newsreader', serif;
+    font-style:italic;
+    font-size:0.82rem;
+    margin-bottom:3px;
+  }
+  .lens .d{font-size:0.76rem; color:var(--ink-soft); line-height:1.4;}
+
+  .flag-note{
+    display:flex;
+    gap:8px;
+    align-items:flex-start;
+    background:var(--flag-soft);
+    border:1px solid rgba(181,84,43,0.3);
+    color:var(--flag);
+    border-radius:8px;
+    padding:9px 11px;
+    font-size:0.78rem;
+    margin-top:10px;
+  }
+
+  /* Suggested prompts + input */
+  .suggestions{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    padding:14px 24px;
+    border-top:1px solid var(--hairline);
+  }
+  .sugg{
+    font-family:'IBM Plex Sans', sans-serif;
+    font-size:0.78rem;
+    background:var(--paper);
+    border:1px solid var(--hairline);
+    border-radius:20px;
+    padding:6px 13px;
+    cursor:pointer;
+    color:var(--ink);
+  }
+  .sugg:hover{border-color:var(--verified); color:var(--verified);}
+
+  .input-row{
+    display:flex;
+    gap:10px;
+    padding:14px 24px 20px;
+  }
+  .input-row input{
+    flex:1;
+    border:1px solid var(--hairline);
+    border-radius:8px;
+    padding:11px 14px;
+    font-family:'IBM Plex Sans', sans-serif;
+    font-size:0.9rem;
+    background:var(--paper);
+    color:var(--ink);
+  }
+  .input-row input:focus{outline:2px solid var(--verified); outline-offset:1px;}
+  .input-row button{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.75rem;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    background:var(--ink);
+    color:var(--paper);
+    border:none;
+    border-radius:8px;
+    padding:0 18px;
+    cursor:pointer;
+  }
+  .input-row button:hover{background:var(--verified);}
+
+  /* ---------- Ledger column ---------- */
+  .ledger{
+    background:var(--ledger);
+    border:1px solid var(--hairline);
+    border-radius:var(--radius);
+    padding:18px;
+    position:sticky;
+    top:20px;
+  }
+  .ledger h2{
+    font-family:'Newsreader', serif;
+    font-weight:600;
+    font-size:1rem;
+    margin:0 0 4px;
+  }
+  .ledger .sub{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.65rem;
+    color:var(--ink-soft);
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    margin-bottom:14px;
+  }
+  .ledger-empty{
+    font-size:0.8rem;
+    color:var(--ink-soft);
+    font-style:italic;
+  }
+  .entry{
+    border-top:1px solid var(--hairline);
+    padding:10px 0;
+    font-size:0.78rem;
+  }
+  .entry:first-of-type{border-top:none;}
+  .entry .tag{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.66rem;
+    color:var(--verified);
+    display:block;
+    margin-bottom:2px;
+  }
+  .entry .src{color:var(--ink-soft);}
+
+  ::-webkit-scrollbar{width:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--hairline); border-radius:4px;}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important;}
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">Ward<em>Audit</em></div>
+    <div class="meta">prototype · not a real diagnosis · demo data</div>
+  </header>
+
+  <div class="layout">
+
+    <!-- CHAT -->
+    <div class="chat-panel">
+      <div class="chat-scroll" id="chatScroll">
+
+        <div class="msg user">
+          <div class="label">You</div>
+          <div class="bubble">How many glasses of water should an average adult drink per day?</div>
+        </div>
+
+        <div class="msg bot">
+          <div class="label">WardAudit</div>
+          <div class="bubble">
+            Most adults are advised to drink roughly 8 cups (about 2 litres) of water a day
+            <span class="cite" data-target="c1">NASEM guideline</span>,
+            though needs shift with activity level, climate, and body size
+            <span class="cite" data-target="c2">Mayo Clinic</span>.
+            <div class="cite-detail" id="c1">
+              <span class="k">Source:</span> National Academies of Sciences, Engineering, and Medicine — Dietary Reference Intakes for Water<br>
+              <span class="k">Retrieved:</span> curated reference corpus, not live web<br>
+              <span class="k">Confidence:</span> high — direct guideline text
+            </div>
+            <div class="cite-detail" id="c2">
+              <span class="k">Source:</span> Mayo Clinic — Water: How much should you drink every day?<br>
+              <span class="k">Retrieved:</span> curated reference corpus<br>
+              <span class="k">Confidence:</span> high — direct guideline text
+            </div>
+          </div>
+        </div>
+
+        <div class="msg user">
+          <div class="label">You</div>
+          <div class="bubble">Why was patient #4417 flagged high-risk for readmission?</div>
+        </div>
+
+        <div class="msg bot">
+          <div class="label">WardAudit</div>
+          <div class="bubble">
+            Patient #4417 was flagged high-risk mainly due to 3 prior inpatient admissions in the last year
+            <span class="cite" data-target="c3">SHAP · feature</span> and an elevated A1C reading at discharge
+            <span class="cite" data-target="c4">SHAP · feature</span>. Race and gender contributed
+            negligibly to this specific prediction
+            <span class="cite" data-target="c5">SHAP · fairness check</span>.
+            <div class="cite-detail" id="c3">
+              <span class="k">Feature:</span> num_prior_inpatient_visits = 3<br>
+              <span class="k">SHAP value:</span> +0.31 (pushes toward high-risk)<br>
+              <span class="k">Model:</span> XGBoost readmission-v0.3
+            </div>
+            <div class="cite-detail" id="c4">
+              <span class="k">Feature:</span> A1C_result = &gt;8<br>
+              <span class="k">SHAP value:</span> +0.22<br>
+              <span class="k">Model:</span> XGBoost readmission-v0.3
+            </div>
+            <div class="cite-detail" id="c5">
+              <span class="k">Features:</span> race, gender<br>
+              <span class="k">Combined |SHAP|:</span> 0.01 (below 0.05 flag threshold)<br>
+              <span class="k">Audit rule:</span> protected-attribute contribution check
+            </div>
+
+            <div class="art-row">
+              <div class="art-chip"><div class="t">Accountability</div><div class="v ok">Logged · v0.3</div></div>
+              <div class="art-chip"><div class="t">Responsibility</div><div class="v ok">Model card on file</div></div>
+              <div class="art-chip"><div class="t">Transparency</div><div class="v ok">100% SHAP coverage</div></div>
+            </div>
+
+            <div class="lens-row">
+              <div class="lens">
+                <div class="t">Utilitarian</div>
+                <div class="d">Flagging trades a higher false-alarm rate for fewer missed readmissions — net harm reduction given readmission cost.</div>
+              </div>
+              <div class="lens">
+                <div class="t">Deontological</div>
+                <div class="d">No protected attribute used as a direct driver of this decision (see fairness check above).</div>
+              </div>
+              <div class="lens flagged">
+                <div class="t">Virtue</div>
+                <div class="d">A cautious clinician would still confirm A1C recency before acting — reading is 11 days old.</div>
+              </div>
+            </div>
+
+            <div class="flag-note">⚠ Group-level audit: overall demographic-parity gap for this model is 0.07 across age bands — above the 0.05 threshold. This single prediction is clean, but the model warrants a wider review.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="suggestions">
+        <div class="sugg" data-msg="Is this model biased against any group overall?">Is this model biased overall?</div>
+        <div class="sugg" data-msg="What does the ART scorecard mean?">What does the ART scorecard mean?</div>
+        <div class="sugg" data-msg="Explain the difference between GDPR and NITI Aayog on this.">GDPR vs NITI Aayog?</div>
+      </div>
+
+      <div class="input-row">
+        <input type="text" id="msgInput" placeholder="Ask about a case, a metric, or a concept…">
+        <button id="sendBtn">Ask</button>
+      </div>
+    </div>
+
+    <!-- LEDGER -->
+    <div class="ledger">
+      <h2>Evidence Ledger</h2>
+      <div class="sub">every citation used, in order</div>
+      <div id="ledgerList">
+        <div class="ledger-empty">Click a citation chip in the chat to log it here.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const ledgerList = document.getElementById('ledgerList');
+  const chatScroll = document.getElementById('chatScroll');
+  let ledgerHasEntries = false;
+  const loggedOnce = new Set();
+
+  function logToLedger(chipEl, detailEl){
+    const id = chipEl.dataset.target;
+    if(loggedOnce.has(id)) return;
+    loggedOnce.add(id);
+    if(!ledgerHasEntries){
+      ledgerList.innerHTML = '';
+      ledgerHasEntries = true;
+    }
+    const firstLine = detailEl.querySelector('.k') ? detailEl.textContent.trim().split('\n')[0] : '';
+    const entry = document.createElement('div');
+    entry.className = 'entry';
+    entry.innerHTML = '<span class="tag">' + chipEl.textContent.trim() + '</span><span class="src">' + firstLine.slice(0, 90) + '</span>';
+    ledgerList.appendChild(entry);
+  }
+
+  document.querySelectorAll('.cite').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const detail = document.getElementById(chip.dataset.target);
+      const isOpen = detail.classList.toggle('open');
+      chip.classList.toggle('active', isOpen);
+      if(isOpen) logToLedger(chip, detail);
+    });
+  });
+
+  function addUserMessage(text){
+    const div = document.createElement('div');
+    div.className = 'msg user';
+    div.innerHTML = '<div class="label">You</div><div class="bubble"></div>';
+    div.querySelector('.bubble').textContent = text;
+    chatScroll.appendChild(div);
+    chatScroll.scrollTop = chatScroll.scrollHeight;
+  }
+
+  function addBotPlaceholder(){
+    const div = document.createElement('div');
+    div.className = 'msg bot';
+    div.innerHTML = '<div class="label">WardAudit</div><div class="bubble">Retrieving evidence…</div>';
+    chatScroll.appendChild(div);
+    chatScroll.scrollTop = chatScroll.scrollHeight;
+    return div;
+  }
+
+  const canned = {
+    "is this model biased against any group overall?": "Across the full validation set, the demographic-parity gap is 0.07 between the oldest and youngest age bands (above the 0.05 threshold), while gender and race gaps stay under 0.03. Recommend a targeted review of age-band calibration before deployment.",
+    "what does the art scorecard mean?": "Accountability = every prediction is logged with model version and timestamp. Responsibility = a model card discloses known dataset limitations. Transparency = the share of predictions with an attached SHAP explanation, currently 100%.",
+    "explain the difference between gdpr and niti aayog on this.": "GDPR gives patients an enforceable right to an explanation and data erasure, with binding penalties. NITI Aayog's principles cover similar ground — fairness, transparency, accountability — but as guidance rather than a binding regulation, so enforcement mechanisms differ."
+  };
+
+  function respondTo(text){
+    addUserMessage(text);
+    const placeholder = addBotPlaceholder();
+    setTimeout(() => {
+      const key = text.trim().toLowerCase();
+      placeholder.querySelector('.bubble').textContent = canned[key] || "This is a static prototype — that response isn't scripted yet, but this is where the real pipeline would answer with cited evidence.";
+      chatScroll.scrollTop = chatScroll.scrollHeight;
+    }, 500);
+  }
+
+  document.querySelectorAll('.sugg').forEach(s => {
+    s.addEventListener('click', () => respondTo(s.dataset.msg));
+  });
+
+  document.getElementById('sendBtn').addEventListener('click', () => {
+    const input = document.getElementById('msgInput');
+    if(input.value.trim() === '') return;
+    respondTo(input.value.trim());
+    input.value = '';
+  });
+  document.getElementById('msgInput').addEventListener('keydown', e => {
+    if(e.key === 'Enter') document.getElementById('sendBtn').click();
+  });
+</script>
+
+</body>
+</html>

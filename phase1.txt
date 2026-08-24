@@ -1,0 +1,49 @@
+# WardAudit — Progress Write-up (Phase 1)
+
+## 1. Project setup
+
+The project is built on Django using the MVT (Model-View-Template) architecture, chosen specifically because the core of this project is not a web app with a database attached, but a fairness/explainability audit pipeline that a web layer sits on top of. Python's ML ecosystem — pandas, scikit-learn, XGBoost, SHAP, Fairlearn — is what does the real work, and Django lets that pipeline live in the same codebase as the chatbot interface without needing a separate backend service or REST boundary between two languages.
+
+- Three Django apps separate concerns: `audit` (the ML/fairness/explainability engine), `knowledge` (planned for Phase 2 — concept Q&A), and `chat` (the conversational interface and view layer).
+- A Python virtual environment isolates dependencies (`django`, `pandas`, `scikit-learn`, `xgboost`, `shap`, `fairlearn`).
+- SQLite is used as the database — sufficient for a single-developer coursework project and consistent with the existing PythonAnywhere deployment workflow.
+
+## 2. Dataset selection and cleaning
+
+The **Diabetes 130-US Hospitals (1999–2008)** dataset from the UCI Machine Learning Repository was selected for the audited model. It contains just over 100,000 hospital encounters for diabetic patients, with demographic fields (race, gender, age bracket), clinical fields (lab procedures, medications, diagnoses), and an outcome field indicating whether the patient was readmitted within 30 days, after 30 days, or not at all.
+
+- Missing values are encoded in the raw file as the literal character `?` rather than blank cells, so this was explicitly handled during loading.
+- Encounters where the patient died or was discharged to hospice (6 specific discharge-disposition codes) were removed, since a deceased patient cannot be meaningfully "readmitted" — leaving these rows in would have corrupted the prediction target. This dropped 2,423 of 101,766 total rows.
+- The `weight` column was excluded from modeling as it is missing in roughly 97% of records.
+- The three-way outcome field was collapsed into a binary target: readmitted within 30 days (1) versus not (0), which is the standard, clinically meaningful framing used in published research on this dataset.
+- The cleaned dataset used for modeling contains 99,343 encounters, split 80/20 into training and test sets (stratified on the outcome to preserve class balance).
+
+## 3. Model training
+
+Two models were deliberately trained on the same data, to demonstrate the "black box problem" concept from the syllabus rather than just building one predictive model:
+
+- **Logistic Regression** — an interpretable baseline, where each input's contribution can be read directly from its coefficient. Achieved 0.644 ROC-AUC on the held-out test set.
+- **XGBoost** — a stronger but opaque ensemble model. Achieved 0.653 ROC-AUC.
+
+The gap between the two illustrates the real trade-off: XGBoost is more accurate but cannot be understood by inspection, which is precisely why the explainability layer described next was built around it specifically, rather than around the already-transparent logistic regression model.
+
+## 4. Explainability and fairness audit
+
+Two forms of audit were computed for the XGBoost model and cached to the database, so that every claim the chatbot later makes can point to a specific, precomputed number rather than being generated freely:
+
+- **SHAP (SHapley Additive exPlanations)** was used to compute, for every patient in the test set, which input features contributed most to their individual risk prediction and in which direction. The top 6 contributing features per patient (119,214 records total) were stored.
+- **Fairlearn** was used to compute group-fairness metrics — demographic parity difference and equalized odds difference — across three attributes: race, gender, and age bracket. The results showed race and gender gaps were small (0.023 and 0.002 demographic-parity difference respectively), while **age bracket showed a materially larger gap (0.098 equalized-odds difference)** — a concrete, evidence-based finding rather than a general claim about the model.
+
+## 5. Current chatbot functionality
+
+A working end-to-end chat interface is live, backed entirely by the cached data above rather than by calling an external LLM API for factual content. When a user asks about a specific patient (by encounter ID), the backend:
+
+- Looks up that patient's cached prediction and top SHAP-driven features, and states the outcome and drivers in plain language.
+- Attaches each factual claim to a clickable citation showing the exact underlying SHAP value — clicking logs it into a visible "Evidence Ledger" panel, so the conversation accumulates a visible audit trail.
+- Displays a compact **ART scorecard** (Accountability / Responsibility / Transparency), reflecting real properties of the system (e.g., number of SHAP features actually cached for that patient) rather than a subjective score.
+- Shows three short ethics-lens notes (Utilitarian, Deontological, Virtue), each grounded in a computed fact — for example, the deontological note is only flagged if a protected attribute (race/gender) genuinely appears among that patient's top SHAP drivers.
+- Surfaces a group-level fairness warning automatically whenever the relevant demographic-parity gap exceeds a defined threshold (0.05).
+
+## 6. What's next
+
+Phase 1 covers a single, fully verifiable vertical slice: one case-specific query type, answered entirely from precomputed audit data. Phase 2 will add a second query type — general concept questions (e.g. "what does GDPR require?", "explain deontology") — answered via retrieval over a small curated document corpus (GDPR summary, NITI Aayog principles, the ART framework, the three ethical theories), which is where genuine language generation with citation to source documents will be introduced, as opposed to the template-based, fully-deterministic answers used for patient-specific queries in Phase 1.
