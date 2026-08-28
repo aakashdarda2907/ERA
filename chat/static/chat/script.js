@@ -1,12 +1,37 @@
 const chatScroll = document.getElementById('chatScroll');
 const ledgerList = document.getElementById('ledgerList');
+const msgInput = document.getElementById('msgInput');
+const sendBtn = document.getElementById('sendBtn');
+const randomBtn = document.getElementById('randomBtn');
+const suggestionButtons = document.querySelectorAll('.sugg[data-question]');
 let ledgerHasEntries = false;
 const loggedOnce = new Set();
+let isSending = false;
 
 function addUserMessage(text) {
   const div = document.createElement('div');
   div.className = 'msg user';
   div.innerHTML = '<div class="label">You</div><div class="bubble"></div>';
+  div.querySelector('.bubble').textContent = text;
+  chatScroll.appendChild(div);
+  chatScroll.scrollTop = chatScroll.scrollHeight;
+}
+
+function addLoadingIndicator() {
+  const div = document.createElement('div');
+  div.className = 'msg bot loading';
+  div.innerHTML =
+    '<div class="label">WardAudit</div>' +
+    '<div class="bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
+  chatScroll.appendChild(div);
+  chatScroll.scrollTop = chatScroll.scrollHeight;
+  return div;
+}
+
+function addErrorMessage(text) {
+  const div = document.createElement('div');
+  div.className = 'msg bot';
+  div.innerHTML = '<div class="label">WardAudit</div><div class="bubble"></div>';
   div.querySelector('.bubble').textContent = text;
   chatScroll.appendChild(div);
   chatScroll.scrollTop = chatScroll.scrollHeight;
@@ -88,22 +113,74 @@ function renderBotResponse(payload) {
   });
 }
 
-async function sendMessage(text) {
-  addUserMessage(text);
-  const res = await fetch('/ask/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: text }),
-  });
-  renderBotResponse(await res.json());
+function setSendingState(sending) {
+  isSending = sending;
+  sendBtn.disabled = sending;
+  msgInput.disabled = sending;
+  suggestionButtons.forEach(btn => { btn.disabled = sending; });
+  if (randomBtn) randomBtn.disabled = sending;
 }
 
-document.getElementById('sendBtn').addEventListener('click', () => {
-  const input = document.getElementById('msgInput');
-  if (input.value.trim() === '') return;
-  sendMessage(input.value.trim());
-  input.value = '';
+async function sendMessage(text) {
+  if (isSending) return;
+  addUserMessage(text);
+  setSendingState(true);
+  const loadingEl = addLoadingIndicator();
+  try {
+    const res = await fetch('/ask/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    if (!res.ok) throw new Error('Request failed: ' + res.status);
+    const payload = await res.json();
+    loadingEl.remove();
+    renderBotResponse(payload);
+  } catch (err) {
+    loadingEl.remove();
+    addErrorMessage("Sorry — couldn't reach WardAudit just now. Please try again.");
+    console.error(err);
+  } finally {
+    setSendingState(false);
+    msgInput.focus();
+  }
+}
+
+sendBtn.addEventListener('click', () => {
+  const text = msgInput.value.trim();
+  if (text === '') return;
+  sendMessage(text);
+  msgInput.value = '';
 });
-document.getElementById('msgInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('sendBtn').click();
+msgInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendBtn.click();
 });
+
+suggestionButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (isSending) return;
+    sendMessage(btn.dataset.question);
+  });
+});
+
+if (randomBtn) {
+  randomBtn.addEventListener('click', async () => {
+    if (isSending) return;
+    const originalLabel = randomBtn.textContent;
+    randomBtn.disabled = true;
+    randomBtn.textContent = 'Finding one…';
+    try {
+      const res = await fetch('/random-patient/');
+      if (!res.ok) throw new Error('Request failed: ' + res.status);
+      const data = await res.json();
+      msgInput.value = `Why was patient ${data.encounter_id} flagged?`;
+      msgInput.focus();
+    } catch (err) {
+      console.error(err);
+      addErrorMessage("Couldn't fetch a random patient just now — please try again.");
+    } finally {
+      randomBtn.disabled = false;
+      randomBtn.textContent = originalLabel;
+    }
+  });
+}
