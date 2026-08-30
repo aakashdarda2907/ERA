@@ -17,7 +17,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
 from django.core.management.base import BaseCommand
-from audit.models import Patient, Prediction
+from audit.models import Patient, Prediction, ModelMetric
 from audit.pipeline import load_and_clean, build_features, split
 
 
@@ -39,7 +39,8 @@ class Command(BaseCommand):
         logreg = LogisticRegression(max_iter=1000)
         logreg.fit(X_train, y_train)
         logreg_probs = logreg.predict_proba(X_test)[:, 1]
-        self.stdout.write(f'LogReg ROC-AUC: {roc_auc_score(y_test, logreg_probs):.3f}')
+        logreg_auc = roc_auc_score(y_test, logreg_probs)
+        self.stdout.write(f'LogReg ROC-AUC: {logreg_auc:.3f}')
         joblib.dump(logreg, 'audit/ml_artifacts/logreg_v0.1.pkl')
 
         # --- Black-box model, the one the chatbot actually explains via SHAP ---
@@ -47,8 +48,20 @@ class Command(BaseCommand):
         xgb = XGBClassifier(eval_metric='logloss', random_state=42)
         xgb.fit(X_train, y_train)
         xgb_probs = xgb.predict_proba(X_test)[:, 1]
-        self.stdout.write(f'XGBoost ROC-AUC: {roc_auc_score(y_test, xgb_probs):.3f}')
+        xgb_auc = roc_auc_score(y_test, xgb_probs)
+        self.stdout.write(f'XGBoost ROC-AUC: {xgb_auc:.3f}')
         joblib.dump(xgb, 'audit/ml_artifacts/xgboost_v0.1.pkl')
+
+        # --- Cache ROC-AUC for both models so /report/ can display it without ---
+        # --- re-scoring the models on every page load ---
+        ModelMetric.objects.update_or_create(
+            model_version='logreg-v0.1', metric_name='roc_auc',
+            defaults=dict(value=float(logreg_auc)),
+        )
+        ModelMetric.objects.update_or_create(
+            model_version='xgboost-v0.1', metric_name='roc_auc',
+            defaults=dict(value=float(xgb_auc)),
+        )
 
         # Column order must match exactly when SHAP re-loads this model later,
         # since sklearn/XGBoost matches inputs by position, not by name.

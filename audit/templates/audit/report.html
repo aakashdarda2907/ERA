@@ -1,0 +1,127 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WardAudit — Model &amp; Fairness Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'audit/report.css' %}">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">Ward<em>Audit</em></div>
+    <div class="meta">model &amp; fairness report · demo data only</div>
+  </header>
+
+  <nav class="crumb"><a href="/">&larr; Back to chat</a></nav>
+
+  <section class="panel">
+    <h1>1. Model comparison</h1>
+    <p class="sub">ROC-AUC on the held-out test set, cached from <code>python manage.py train_model</code>.</p>
+
+    {% if models.logreg.roc_auc is None or models.xgboost.roc_auc is None %}
+      <div class="empty-note">
+        ROC-AUC hasn't been cached yet. Run <code>python manage.py train_model</code> to compute it.
+      </div>
+    {% else %}
+      <div class="model-row">
+        <div class="model-card">
+          <div class="t">{{ models.logreg.label }}</div>
+          <div class="v">{{ models.logreg.roc_auc|floatformat:3 }}</div>
+          <div class="tag">interpretable baseline</div>
+        </div>
+        <div class="model-card highlight">
+          <div class="t">{{ models.xgboost.label }}</div>
+          <div class="v">{{ models.xgboost.roc_auc|floatformat:3 }}</div>
+          <div class="tag">stronger, opaque — audited below</div>
+        </div>
+      </div>
+      <p class="note">
+        XGBoost scores higher but can't be read by inspection the way logistic regression's
+        coefficients can — which is why the explainability (SHAP) and fairness (Fairlearn)
+        audit below was built specifically around the XGBoost model.
+      </p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h1>2. Fairlearn results — {{ xgboost_version }}</h1>
+    <p class="sub">
+      Demographic parity difference and equalized odds difference across race, gender, and age
+      bracket. A row is flagged when either gap exceeds {{ threshold }}.
+    </p>
+
+    <table class="fair-table">
+      <thead>
+        <tr>
+          <th>Protected attribute</th>
+          <th>Demographic parity diff.</th>
+          <th>Equalized odds diff.</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in fairness_rows %}
+        <tr class="{% if row.flagged %}flagged{% endif %}">
+          <td class="attr">{{ row.label }}</td>
+          <td>{% if row.dpd is not None %}{{ row.dpd|floatformat:3 }}{% else %}—{% endif %}</td>
+          <td>{% if row.eod is not None %}{{ row.eod|floatformat:3 }}{% else %}—{% endif %}</td>
+          <td class="status">
+            {% if row.dpd is None and row.eod is None %}
+              not computed
+            {% elif row.flagged %}
+              <span class="pill warn">above threshold</span>
+            {% else %}
+              <span class="pill ok">within threshold</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if not fairness_rows %}
+      <div class="empty-note">
+        No fairness metrics cached yet. Run <code>python manage.py run_audit</code> after
+        <code>train_model</code>.
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h1>3. Per-group breakdown</h1>
+    <p class="sub">
+      Selection rate (share flagged high-risk) for every individual group, from
+      <code>FairnessMetric.detail</code>.
+    </p>
+
+    {% for row in fairness_rows %}
+      {% if row.detail %}
+      <div class="group-block">
+        <h2>{{ row.label }}</h2>
+        <table class="group-table">
+          <thead>
+            <tr><th>Group</th><th>Selection rate</th></tr>
+          </thead>
+          <tbody>
+            {% for group_name, rate in row.detail %}
+            <tr>
+              <td>{{ group_name }}</td>
+              <td>{{ rate|floatformat:3 }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    {% endfor %}
+
+    {% if not fairness_rows %}
+      <div class="empty-note">No per-group data cached yet.</div>
+    {% endif %}
+  </section>
+</div>
+</body>
+</html>
