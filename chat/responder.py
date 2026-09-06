@@ -259,3 +259,38 @@ def answer_case_query(encounter_id):
         'lenses': lenses,
         'flag_note': flag_note,
     }
+
+
+def answer_concept_query(message):
+    """Answers a general concept question (GDPR, ethics theories, fairness,
+    etc.) by retrieving the single best-matching corpus document via TF-IDF
+    and citing it - as opposed to answer_case_query, which cites cached
+    SHAP/Fairlearn data. Returns the document's full cleaned body rather
+    than a single extracted paragraph, since short corpus docs answer more
+    reliably as a whole than as a fragment picked out of context.
+    """
+    from knowledge.retriever import retrieve_best_doc, clean_body
+
+    doc, score = retrieve_best_doc(message)
+    if doc is None:
+        return {
+            'type': 'concept',
+            'answer': "I don't have a confident source for that in my knowledge base yet. "
+                      "Try asking about GDPR, NITI Aayog, the ART framework, utilitarianism, "
+                      "deontology, virtue ethics, fairness/bias, explainable AI, or privacy-preserving AI.",
+            'citations': [], 'art': None, 'lenses': [], 'flag_note': None,
+        }
+
+    body = clean_body(doc)
+    answer = f"{body} [[C1]]"
+
+    return {
+        'type': 'concept',
+        'answer': answer,
+        'citations': [{
+            'id': 'C1',
+            'label': f'Source: {doc.title}',
+            'detail': f'Corpus document: {doc.slug}.md | Match confidence: {score:.2f}',
+        }],
+        'art': None, 'lenses': [], 'flag_note': None,
+    }
