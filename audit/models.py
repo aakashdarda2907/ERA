@@ -42,6 +42,24 @@ class ShapExplanation(models.Model):
         indexes = [models.Index(fields=['patient', 'model_version'])]
 
 
+class ModelMetric(models.Model):
+    """Global (non-group) model performance metrics, e.g. ROC-AUC on the held-out
+    test set. Kept separate from FairnessMetric because these describe overall
+    predictive performance rather than a per-protected-attribute fairness gap,
+    and separate from Prediction because they're one row per model, not per patient.
+    """
+    model_version = models.CharField(max_length=50)   # e.g. "xgboost-v0.1"
+    metric_name = models.CharField(max_length=100)     # e.g. "roc_auc"
+    value = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('model_version', 'metric_name')
+
+    def __str__(self):
+        return f'{self.model_version} {self.metric_name}={self.value:.3f}'
+
+
 class FairnessMetric(models.Model):
     model_version = models.CharField(max_length=50)
     protected_attribute = models.CharField(max_length=50)   # 'race', 'gender', 'age_bracket'

@@ -1,14 +1,20 @@
+
 """
 HTTP layer: renders the chat page and handles the /ask/ POST endpoint.
-All actual answer-building logic lives in responder.py — this file only
-handles request/response plumbing.
+Routes to case-query (patient ID present) or concept-query (no ID -
+general knowledge-base question) - all actual answer-building logic lives
+in responder.py.
 """
 import json
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from audit.models import Patient
-from .responder import answer_case_query, extract_encounter_id
+from .responder import (
+    answer_case_query,
+    answer_concept_query,
+    extract_encounter_id,
+)
 
 
 def index(request):
@@ -25,28 +31,21 @@ def index(request):
     return render(request, 'chat/index.html', {'suggestions': suggestions})
 
 
-@csrf_exempt  # dev-only convenience — re-enable proper CSRF handling before any real deployment
+@csrf_exempt  # dev-only convenience - re-enable proper CSRF handling before any real deployment
 def ask(request):
-    """Receives a user message, routes it to a query handler, returns JSON.
-
-    Currently only handles case-specific queries (message contains an
-    encounter ID). Concept questions (no ID present) return a placeholder —
-    that path gets built in Phase 2 once the RAG/knowledge-base layer exists.
-    """
+    """Receives a user message and routes it to the right query handler."""
     if request.method != 'POST':
         return JsonResponse({'error': 'POST only'}, status=405)
+
     body = json.loads(request.body)
     message = body.get('message', '')
     encounter_id = extract_encounter_id(message)
+
     if encounter_id:
         payload = answer_case_query(encounter_id)
     else:
-        payload = {
-            'type': 'unknown',
-            'answer': 'Concept Q&A (GDPR, ethics theories, etc.) isn\'t wired up yet — that\'s Phase 2. '
-                      'Try asking about a specific patient, e.g. "why was patient 12522 flagged?"',
-            'citations': [], 'art': None, 'lenses': [], 'flag_note': None,
-        }
+        payload = answer_concept_query(message)
+
     return JsonResponse(payload)
 
 
@@ -58,7 +57,10 @@ def random_patient(request):
     """
     if request.method != 'GET':
         return JsonResponse({'error': 'GET only'}, status=405)
+
     patient = Patient.objects.order_by('?').first()
+
     if not patient:
         return JsonResponse({'error': 'No cached patients available'}, status=404)
+
     return JsonResponse({'encounter_id': patient.encounter_id})

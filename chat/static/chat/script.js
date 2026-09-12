@@ -57,7 +57,8 @@ function renderBotResponse(payload) {
   const citeMap = {};
   (payload.citations || []).forEach(c => citeMap[c.id] = c);
 
-  bubble.innerHTML = payload.answer.replace(/\[\[(\w+)\]\]/g, (match, cid) => {
+  const withBreaks = payload.answer.replace(/\n/g, '<br>');
+bubble.innerHTML = withBreaks.replace(/\[\[(\w+)\]\]/g, (match, cid) => {
     const c = citeMap[cid];
     return c ? `<span class="cite" data-target="${c.id}">${c.label}</span>` : '';
   });
