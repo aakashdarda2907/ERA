@@ -121,6 +121,39 @@
     {% if not fairness_rows %}
       <div class="empty-note">No per-group data cached yet.</div>
     {% endif %}
+    </section>
+
+  <section class="panel">
+    <h1>4. Global feature importance</h1>
+    <p class="sub">
+      Mean absolute SHAP value per feature across all {{ xgboost_version }} predictions in the
+      Evidence Ledger — a global, model-wide view, distinct from the per-patient SHAP breakdown
+      shown in the chat. Built entirely by aggregating the same cached SHAP evidence <code>run_audit</code>
+      already stored; no new SHAP computation happens here.
+    </p>
+
+    {% if global_importance %}
+    <div class="importance-chart">
+      {% for row in global_importance %}
+      <div class="importance-row">
+        <div class="importance-label" title="{{ row.feature }}">{{ row.feature }}</div>
+        <div class="importance-track">
+          <div class="importance-fill" style="width: {{ row.pct }}%;"></div>
+        </div>
+        <div class="importance-value">{{ row.avg_abs_shap|floatformat:3 }} <span class="n">(n={{ row.n }})</span></div>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="note">
+      Each average is taken only over patients where this feature was one of their top 6 SHAP
+      contributors (n shown per row) — not every patient — since only the top 6 per patient are
+      cached by <code>run_audit</code>.
+    </p>
+    {% else %}
+      <div class="empty-note">
+        No SHAP data cached yet. Run <code>python manage.py run_audit</code>.
+      </div>
+    {% endif %}
   </section>
 </div>
 </body>

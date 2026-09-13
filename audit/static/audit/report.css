@@ -185,5 +185,49 @@ table{
 .group-block{margin-bottom:6px;}
 .group-table td:last-child, .group-table th:last-child{text-align:right;}
 
+
+/* Global feature importance bar chart */
+.importance-chart{margin-top:4px;}
+.importance-row{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-bottom:9px;
+}
+.importance-label{
+  width:170px;
+  flex-shrink:0;
+  font-family:'IBM Plex Mono', monospace;
+  font-size:0.74rem;
+  color:var(--ink-soft);
+  text-align:right;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.importance-track{
+  flex:1;
+  background:var(--ledger);
+  border-radius:4px;
+  height:14px;
+  overflow:hidden;
+}
+.importance-fill{
+  background:var(--verified);
+  height:100%;
+  border-radius:4px;
+}
+.importance-value{
+  width:105px;
+  flex-shrink:0;
+  font-family:'IBM Plex Mono', monospace;
+  font-size:0.76rem;
+  color:var(--ink);
+}
+.importance-value .n{
+  color:var(--ink-soft);
+  font-size:0.68rem;
+}
+
 ::-webkit-scrollbar{width:8px;}
 ::-webkit-scrollbar-thumb{background:var(--hairline); border-radius:4px;}

@@ -10,7 +10,9 @@ every number shown is a specific, precomputed value, not something
 generated on the fly.
 """
 from django.shortcuts import render
-from .models import ModelMetric, FairnessMetric
+from django.db.models import Avg, Count
+from django.db.models.functions import Abs
+from .models import ModelMetric, FairnessMetric, ShapExplanation
 
 # Model version strings, matching the constants used in
 # chat/responder.py and the management commands.
@@ -88,6 +90,38 @@ def _fairness_breakdown():
         })
     return rows
 
+def _global_feature_importance(limit=12):
+    """Mean absolute SHAP value per feature across all cached XGBoost SHAP
+    explanations, ranked descending — a global, model-wide view built by
+    aggregating the same per-patient evidence run_audit already stored.
+    No new SHAP computation happens here.
+
+    Caveat: run_audit only stores each patient's top 6 contributing
+    features (TOP_K_FEATURES), not all ~100 one-hot columns per patient.
+    So each feature's average is only over the patients where it was
+    significant enough to be a top-6 contributor — this is shown as `n`
+    alongside each bar so the report doesn't overstate precision.
+    """
+    qs = (
+        ShapExplanation.objects
+        .filter(model_version=XGBOOST_VERSION)
+        .values('feature_name')
+        .annotate(avg_abs_shap=Avg(Abs('shap_value')), n=Count('id'))
+        .order_by('-avg_abs_shap')[:limit]
+    )
+    rows = list(qs)
+    if not rows:
+        return []
+    max_val = rows[0]['avg_abs_shap']
+    return [
+        {
+            'feature': r['feature_name'],
+            'avg_abs_shap': r['avg_abs_shap'],
+            'n': r['n'],
+            'pct': round((r['avg_abs_shap'] / max_val) * 100, 1) if max_val else 0,
+        }
+        for r in rows
+    ]
 
 def report(request):
     """Renders the standalone /report/ page: ROC-AUC comparison, the full
@@ -100,5 +134,6 @@ def report(request):
         'fairness_rows': _fairness_breakdown(),
         'threshold': FAIRNESS_FLAG_THRESHOLD,
         'xgboost_version': XGBOOST_VERSION,
+        'global_importance': _global_feature_importance(),
     }
     return render(request, 'audit/report.html', context)
