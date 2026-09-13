@@ -137,3 +137,23 @@ def report(request):
         'global_importance': _global_feature_importance(),
     }
     return render(request, 'audit/report.html', context)
+
+
+
+def risk_assessment(request):
+    """Renders /report/risk-assessment/ — a narrative AI Risk & Impact
+    Assessment: what the model is for, who it affects, known risks, and
+    mitigations. The numbers cited (ROC-AUC, fairness gaps) come from the
+    same cached ModelMetric/FairnessMetric evidence as the /report/ page —
+    only the surrounding narrative (purpose, stakeholders, mitigations)
+    is authored documentation rather than computed evidence.
+    """
+    fairness_rows = _fairness_breakdown()
+    context = {
+        'models': _model_roc_auc(),
+        'fairness_rows': fairness_rows,
+        'flagged_rows': [r for r in fairness_rows if r['flagged']],
+        'threshold': FAIRNESS_FLAG_THRESHOLD,
+        'xgboost_version': XGBOOST_VERSION,
+    }
+    return render(request, 'audit/risk_assessment.html', context)

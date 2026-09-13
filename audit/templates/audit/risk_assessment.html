@@ -1,0 +1,142 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WardAudit — AI Risk &amp; Impact Assessment</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'audit/report.css' %}">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">Ward<em>Audit</em></div>
+    <div class="meta">AI risk &amp; impact assessment · demo data only</div>
+  </header>
+
+  <nav class="crumb"><a href="{% url 'audit:report' %}">&larr; Back to model &amp; fairness report</a></nav>
+
+  <section class="panel">
+    <h1>1. Purpose &amp; scope</h1>
+    <p class="narrative">
+      WardAudit's underlying model predicts the likelihood that a diabetic inpatient will be
+      readmitted to hospital within 30 days of discharge, using the UCI "Diabetes 130-US
+      Hospitals" dataset (1999–2008). The prediction is intended to help clinical and
+      administrative staff prioritize follow-up attention for patients flagged as high-risk —
+      it is a decision-support signal, not an automated clinical decision, and is not intended
+      to replace clinical judgment.
+    </p>
+    <p class="narrative">
+      Two models were trained and compared: Logistic Regression (ROC-AUC
+      {% if models.logreg.roc_auc %}{{ models.logreg.roc_auc|floatformat:3 }}{% else %}not yet computed{% endif %}),
+      an interpretable baseline, and XGBoost (ROC-AUC
+      {% if models.xgboost.roc_auc %}{{ models.xgboost.roc_auc|floatformat:3 }}{% else %}not yet computed{% endif %}),
+      a stronger but opaque model. XGBoost is the deployed model; its opacity is precisely why
+      it is the one audited with SHAP and Fairlearn throughout this assessment.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h1>2. Who this system affects</h1>
+    <div class="stakeholder-grid">
+      <div class="stakeholder-card">
+        <div class="t">Patients</div>
+        <p>Whose readmission-risk score may influence how much follow-up attention or discharge
+          planning they receive. A wrong or unfair prediction could mean a patient who needs
+          extra care doesn't get flagged for it, or a patient is flagged when they didn't need
+          to be.</p>
+      </div>
+      <div class="stakeholder-card">
+        <div class="t">Clinicians &amp; discharge planners</div>
+        <p>Who act on the model's output. They rely on the SHAP-based explanations and
+          confidence context to decide how much weight to give a prediction, rather than
+          treating the score as ground truth.</p>
+      </div>
+      <div class="stakeholder-card">
+        <div class="t">Hospital administrators</div>
+        <p>Who are responsible for ensuring the system is used fairly and appropriately across
+          patient groups, and for reviewing the fairness audit periodically as new data comes
+          in.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h1>3. Known risks</h1>
+
+    <div class="risk-item">
+      <div class="risk-title">Fairness gap across age brackets</div>
+      <p>
+        The Fairlearn audit on {{ xgboost_version }} found an equalized-odds difference of
+        {% for row in fairness_rows %}{% if row.key == 'age_bracket' %}{{ row.eod|floatformat:3 }}{% endif %}{% endfor %}
+        across age brackets — above the {{ threshold }} threshold used elsewhere in this project.
+        This means the model's correctness (not just its flag rate) differs meaningfully between
+        age groups: younger patients are flagged high-risk at a noticeably higher rate than older
+        patients, which is not automatically justified by the underlying clinical risk. Race and
+        gender were both within the {{ threshold }} threshold on both metrics.
+      </p>
+    </div>
+
+    <div class="risk-item">
+      <div class="risk-title">Dataset age and representativeness</div>
+      <p>
+        The training data is from 1999–2008 — nearly two decades old. Hospital practices,
+        treatment protocols, coding standards, and patient demographics have changed since then,
+        so the model's learned patterns may not transfer cleanly to a current hospital
+        population.
+      </p>
+    </div>
+
+    <div class="risk-item">
+      <div class="risk-title">Model opacity</div>
+      <p>
+        XGBoost outperforms the interpretable Logistic Regression baseline, but its internal
+        reasoning cannot be read directly — every explanation offered to a user is a SHAP
+        approximation of feature contribution, not a verified causal account of why the model
+        made a specific prediction.
+      </p>
+    </div>
+
+    <div class="risk-item">
+      <div class="risk-title">Small-sample groups</div>
+      <p>
+        Some race categories (e.g. Asian, Unknown) and youngest/oldest age brackets have far
+        fewer patients than the majority groups. Fairness metrics computed on small subgroups
+        are less statistically stable and should be interpreted cautiously rather than treated
+        as precise.
+      </p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h1>4. Mitigations &amp; safeguards already in place</h1>
+    <ul class="mitigation-list">
+      <li>Every case-level answer the chatbot gives is grounded in cached SHAP and Fairlearn
+        evidence with a citation — nothing about a specific patient is freely generated.</li>
+      <li>Fairness is audited across three protected attributes (race, gender, age bracket) with
+        an explicit, consistent threshold ({{ threshold }}) for flagging a gap as material.</li>
+      <li>The per-group breakdown (see the model &amp; fairness report) is published alongside the
+        summary statistic, rather than hiding subgroup detail behind a single number.</li>
+      <li>This risk &amp; impact assessment itself is a standing artifact intended for periodic
+        review, not a one-time checkbox — it should be revisited whenever the model is
+        retrained on new data.</li>
+      <li>The system is positioned as decision support only; flagged predictions are intended to
+        prompt clinician review, not to trigger automated action.</li>
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h1>5. Recommended human oversight</h1>
+    <p class="narrative">
+      Given the age-bracket fairness gap above, any deployment decision should include a human
+      review step specifically for younger patients flagged as high-risk, to check whether the
+      flag reflects genuine clinical risk or a pattern the model has overgeneralized. More
+      broadly, the fairness audit ({{ '/report/' }}) should be re-run and reviewed every time the
+      model is retrained, not only at initial deployment.
+    </p>
+  </section>
+</div>
+</body>
+</html>

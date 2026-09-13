@@ -16,7 +16,11 @@
     <div class="meta">model &amp; fairness report · demo data only</div>
   </header>
 
-  <nav class="crumb"><a href="/">&larr; Back to chat</a></nav>
+<nav class="crumb">
+  <a href="/">&larr; Back to chat</a>
+  &nbsp;·&nbsp;
+  <a href="{% url 'audit:risk_assessment' %}">AI Risk &amp; Impact Assessment &rarr;</a>
+</nav>
 
   <section class="panel">
     <h1>1. Model comparison</h1>
