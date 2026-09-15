@@ -12,7 +12,9 @@ from django.views.decorators.csrf import csrf_exempt
 from audit.models import Patient
 from .responder import (
     answer_case_query,
+    answer_comparison_query,
     answer_concept_query,
+    extract_comparison_ids,
     extract_encounter_id,
 )
 
@@ -31,7 +33,7 @@ def index(request):
     return render(request, 'chat/index.html', {'suggestions': suggestions})
 
 
-@csrf_exempt  # dev-only convenience - re-enable proper CSRF handling before any real deployment
+@csrf_exempt
 def ask(request):
     """Receives a user message and routes it to the right query handler."""
     if request.method != 'POST':
@@ -39,12 +41,18 @@ def ask(request):
 
     body = json.loads(request.body)
     message = body.get('message', '')
-    encounter_id = extract_encounter_id(message)
 
-    if encounter_id:
-        payload = answer_case_query(encounter_id)
+    comparison_ids = extract_comparison_ids(message)
+
+    if comparison_ids:
+        payload = answer_comparison_query(*comparison_ids)
     else:
-        payload = answer_concept_query(message)
+        encounter_id = extract_encounter_id(message)
+
+        if encounter_id:
+            payload = answer_case_query(encounter_id)
+        else:
+            payload = answer_concept_query(message)
 
     return JsonResponse(payload)
 

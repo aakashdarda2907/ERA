@@ -48,7 +48,93 @@ function logToLedger(chipEl, detailText) {
   ledgerList.appendChild(entry);
 }
 
+function renderComparison(payload) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'comparison-grid';
+
+    payload.patients.forEach((patient) => {
+        const answer = patient.data.answer || '';
+
+        const riskMatch = answer.match(
+            /predicted\s+([a-z-]+)\s+for/i
+        );
+
+        const scoreMatch = answer.match(
+            /model score:\s*([0-9.]+)/i
+        );
+
+        const factorsMatch = answer.match(
+            /top contributing factors were\s+(.+)/i
+        );
+
+        const riskLevel = riskMatch
+            ? riskMatch[1]
+            : 'Unknown';
+
+        const modelScore = scoreMatch
+            ? scoreMatch[1]
+            : 'N/A';
+
+        const factorsText = factorsMatch
+            ? factorsMatch[1]
+            : 'No contributing factors available';
+
+        const cleanFactors = factorsText
+            .replace(/\[\[F\d+\]\]/g, '')
+            .replace(/\.$/, '')
+            .trim();
+
+        const factors = cleanFactors
+            .split(/,\s+(?=[a-z])/i)
+            .filter(Boolean);
+
+        const card = document.createElement('section');
+        card.className = 'comparison-card';
+
+        const heading = document.createElement('h3');
+        heading.textContent = `Patient ${patient.encounter_id}`;
+
+        const risk = document.createElement('div');
+        risk.className = 'comparison-risk';
+        risk.textContent = `Risk: ${riskLevel}`;
+
+        const score = document.createElement('p');
+        score.textContent = `Model score: ${modelScore}`;
+
+        const reasonsBox = document.createElement('div');
+        reasonsBox.className = 'comparison-reasons';
+
+        const reasonsTitle = document.createElement('strong');
+        reasonsTitle.textContent = 'Top contributing factors';
+
+        const reasonsList = document.createElement('ul');
+
+        factors.forEach((factor) => {
+            const listItem = document.createElement('li');
+            listItem.textContent = factor.trim();
+            reasonsList.appendChild(listItem);
+        });
+
+        reasonsBox.appendChild(reasonsTitle);
+        reasonsBox.appendChild(reasonsList);
+
+        card.appendChild(heading);
+        card.appendChild(risk);
+        card.appendChild(score);
+        card.appendChild(reasonsBox);
+
+        wrapper.appendChild(card);
+    });
+
+    chatScroll.appendChild(wrapper);
+    chatScroll.scrollTop = chatScroll.scrollHeight;
+}
+
 function renderBotResponse(payload) {
+  if (payload.type === 'comparison') {
+    renderComparison(payload);
+    return;
+}
   const div = document.createElement('div');
   div.className = 'msg bot';
   div.innerHTML = '<div class="label">WardAudit</div><div class="bubble"></div>';
@@ -135,6 +221,7 @@ async function sendMessage(text) {
     });
     if (!res.ok) throw new Error('Request failed: ' + res.status);
     const payload = await res.json();
+    console.log('Backend response:', payload);
     loadingEl.remove();
     renderBotResponse(payload);
   } catch (err) {

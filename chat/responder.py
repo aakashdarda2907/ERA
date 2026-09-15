@@ -83,12 +83,13 @@ def humanize_feature(feature_name, feature_value):
 
 
 def extract_encounter_id(message):
-    """Very simple intent detection: any 4+ digit number is treated as an
-    encounter ID lookup. Good enough for Phase 1; Phase 2 will need real
-    intent classification once concept questions (no ID present) are added.
-    """
-    match = re.search(r'\d{4,}', message)
-    return int(match.group()) if match else None
+    """Extract the first patient encounter ID from a message."""
+    ids = re.findall(r'\d{4,}', message)
+
+    if ids:
+        return int(ids[0])
+
+    return None
 
 
 def _latest_fairness(attr):
@@ -293,4 +294,38 @@ def answer_concept_query(message):
             'detail': f'Corpus document: {doc.slug}.md | Match confidence: {score:.2f}',
         }],
         'art': None, 'lenses': [], 'flag_note': None,
+    }
+
+def extract_comparison_ids(message):
+    """Extract two patient encounter IDs from a comparison request."""
+    ids = re.findall(r'\d{4,}', message)
+
+    if len(ids) >= 2:
+        return int(ids[0]), int(ids[1])
+
+    return None
+
+
+def answer_comparison_query(first_id, second_id):
+    """Return the risk information for two patients."""
+    first_patient = answer_case_query(first_id)
+    second_patient = answer_case_query(second_id)
+
+    return {
+        'type': 'comparison',
+        'answer': f'Comparison of patients {first_id} and {second_id}',
+        'patients': [
+            {
+                'encounter_id': first_id,
+                'data': first_patient,
+            },
+            {
+                'encounter_id': second_id,
+                'data': second_patient,
+            },
+        ],
+        'citations': [],
+        'art': {},
+        'lenses': [],
+        'flag_note': '',
     }
