@@ -97,9 +97,134 @@ def _latest_fairness(attr):
         protected_attribute=attr,
         metric_name='demographic_parity_difference'
     ).order_by('-created_at').first()
+def build_counterfactual_explanation(prediction, shap_rows):
+    """Build a counterfactual-style explanation from cached SHAP data."""
+
+    if prediction is None or not shap_rows:
+        return (
+            "I don't have enough cached model evidence to explain "
+            "what would change this prediction."
+        )
+
+    # If already lower-risk, explain the factors supporting that result.
+    if not prediction.predicted_label:
+        low_risk_rows = [
+            row for row in shap_rows
+            if row.shap_value < 0
+        ]
+
+        low_risk_rows.sort(key=lambda row: row.shap_value)
+
+        if low_risk_rows:
+            supporting = []
+
+            for row in low_risk_rows[:3]:
+                supporting.append(
+                    humanize_feature(
+                        row.feature_name,
+                        row.feature_value
+                    )
+                )
+
+            return (
+                f"This patient is already predicted lower-risk "
+                f"(model score: {prediction.risk_score:.2f}), "
+                f"so no change is needed to reach the lower-risk category. "
+                f"The strongest cached factors supporting this prediction "
+                f"are " + ", ".join(supporting) + "."
+            )
+
+        return (
+            f"This patient is already predicted lower-risk "
+            f"(model score: {prediction.risk_score:.2f}), "
+            f"so no change is needed to reach the lower-risk category."
+        )
+
+    # If high-risk, identify the strongest factors pushing risk upward.
+    high_risk_rows = [
+        row for row in shap_rows
+        if row.shap_value > 0
+    ]
+
+    high_risk_rows.sort(
+        key=lambda row: row.shap_value,
+        reverse=True
+    )
+
+    if not high_risk_rows:
+        return (
+            f"The patient is currently predicted high-risk "
+            f"(model score: {prediction.risk_score:.2f}), "
+            f"but there is no positive cached SHAP contributor "
+            f"available for a counterfactual explanation."
+        )
+
+    changes = []
+
+    for row in high_risk_rows[:3]:
+        readable = humanize_feature(
+            row.feature_name,
+            row.feature_value
+        )
+
+        if row.feature_name in RAW_NUMERIC_COLS:
+            change = (
+                f"{row.feature_name.replace('_', ' ')} were lower "
+                f"than its current value ({row.feature_value})"
+            )
+        else:
+            change = (
+                f"{readable} changed to a value or category "
+                f"associated with lower risk"
+            )
+
+        changes.append(change)
+
+    return (
+        f"The patient is currently predicted high-risk "
+        f"(model score: {prediction.risk_score:.2f}). "
+        f"Based on the cached SHAP evidence, the factors most likely "
+        f"to move the prediction toward lower risk are: "
+        + "; ".join(changes)
+        + "."
+    )
+
+def build_confidence_explanation(prediction):
+    """Explain the risk score relative to the 0.5 decision boundary.
+
+    This is an interpretability aid, not a calibrated confidence interval
+    or a guarantee that the prediction is correct.
+    """
+
+    if prediction is None:
+        return (
+            "I don't have a cached prediction score, so I can't describe "
+            "the model's confidence."
+        )
+
+    score = prediction.risk_score
+    distance = abs(score - 0.5)
+
+    if distance >= 0.35:
+        strength = "far from"
+    elif distance >= 0.20:
+        strength = "clearly away from"
+    else:
+        strength = "relatively close to"
+
+    decision = "high-risk" if prediction.predicted_label else "lower-risk"
+
+    return (
+        f"The model score is {score:.2f}, which is {strength} "
+        f"the 0.50 decision boundary (distance: {distance:.2f}). "
+        f"This supports a {decision} classification. However, the score "
+        f"is not a diagnosis, a guarantee of the patient's outcome, or a "
+        f"statistical confidence interval. The model should be treated as "
+        f"one input alongside clinical judgment and other relevant evidence."
+    )
 
 
-def answer_case_query(encounter_id):
+def answer_case_query(encounter_id, message=''):
     """Main entry point: given an encounter_id, return a full answer payload
     (text + citations + ART scorecard + ethics-lens commentary + optional
     group-bias warning), built entirely from cached DB rows.
@@ -198,6 +323,54 @@ def answer_case_query(encounter_id):
         + ', '.join(feature_mentions)
         + '.'
     )
+    # Task 2 Option A: "What would change this?"
+    counterfactual_keywords = [
+        'what would change',
+        'what could change',
+        'what needs to change',
+        'what would need to change',
+        'how can this change',
+        'how could this change',
+        'what can change',
+        'change this',
+    ]
+
+    if any(
+        keyword in message.lower()
+        for keyword in counterfactual_keywords
+    ):
+        counterfactual = build_counterfactual_explanation(
+            prediction,
+            shap_rows
+        )
+
+        answer += (
+            f"\n\n**What would change this?** "
+            f"{counterfactual}"
+        )
+
+    # Task 2 Option B: confidence and limitations.
+    confidence_keywords = [
+        'how confident',
+        'confidence',
+        'how certain',
+        'certainty',
+        'how reliable',
+        'reliable is this',
+        'limitations',
+        'limitation',
+    ]
+
+    if any(
+        keyword in message.lower()
+        for keyword in confidence_keywords
+    ):
+        confidence = build_confidence_explanation(prediction)
+
+        answer += (
+            f"\n\n**Confidence & limitations:** "
+            f"{confidence}"
+        )
 
     # Group-level bias warning.
     dpd_age = _latest_fairness('age_bracket')
