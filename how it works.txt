@@ -1,0 +1,38 @@
+1. How the whole system actually works, end to end
+
+Think of it as two phases: an offline "build the evidence" phase (you run this manually, whenever data/models change) and an online "answer questions" phase (runs automatically on every chat message).
+
+Offline phase — three management commands, run in order:
+
+train_model — loads diabetic_data.csv → cleans it (audit/pipeline.py: drops death/hospice rows, binarizes the readmission target) → trains Logistic Regression (interpretable, weaker: 0.644 AUC) and XGBoost (opaque, stronger: 0.653 AUC) → saves both models to disk → caches every test-set patient + both models' predictions into the Patient/Prediction database tables.
+Why two models: this pair is your "black box problem" evidence for the syllabus — LogReg proves you could be transparent, XGBoost proves transparency costs you nothing once you add explainability on top (which is the next step).
+Only XGBoost gets used for actual chatbot answers — LogReg exists purely as the comparison baseline quoted in the utilitarian ethics-lens text.
+run_audit — reloads the exact same data split, loads the saved XGBoost model, then:
+Runs SHAP on every test patient → stores the top 6 features that drove that specific patient's prediction, with direction and magnitude.
+Runs Fairlearn across race/gender/age → stores demographic-parity and equalized-odds gaps (this is where the age-bracket 0.098 finding came from).
+load_corpus — reads every .md file in knowledge/corpus/ and stores it as a ConceptDoc row. Totally separate from the patient data — this is the "general knowledge" side.
+
+After these three commands run once, no live ML inference ever happens again — every chatbot answer is just a database lookup + template filling. This is deliberate: it's what makes every claim verifiable rather than generated fresh each time.
+
+Online phase — what happens when someone types a message:
+
+User types message → JS sends it to /ask/ → views.ask() checks:
+  does the message contain a 4+ digit number?
+  
+  YES → answer_case_query(id):
+    look up Patient + Prediction + top SHAP features from DB (already computed)
+    look up cached Fairlearn gap for age bracket
+    fill in the answer template + citations + ART scorecard + 3 ethics-lens notes
+    → return as JSON
+
+  NO → answer_concept_query(message):
+    knowledge/retriever.py vectorizes all 14 corpus docs + the query using
+    TF-IDF over CHARACTER n-grams (not whole words — this is what fixed
+    "deontology" vs "deontological" matching each other)
+    picks the highest-scoring document (if above 0.12 confidence)
+    strips headings/source lines, returns the clean body + a citation
+    → return as JSON
+
+The frontend (script.js) then takes that JSON and turns [[F1]]/[[C1]] markers into clickable citation chips, renders the ART scorecard and ethics lenses if present, and logs any clicked citation into the Evidence Ledger panel (that logging is frontend-only — it's a UI trail for the user, not written back to the server).
+
+The one-sentence version

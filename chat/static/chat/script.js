@@ -23,6 +23,24 @@ function logToLedger(chipEl, detailText) {
   ledgerList.appendChild(entry);
 }
 
+function wireCitationChips(bubble, citeMap) {
+  bubble.querySelectorAll('.cite').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const detailEl = document.getElementById(chip.dataset.target);
+      const isOpen = detailEl.classList.toggle('open');
+      chip.classList.toggle('active', isOpen);
+      if (isOpen) logToLedger(chip, detailEl.textContent);
+    });
+  });
+}
+
+function withInlineCitations(text, citeMap) {
+  return text.replace(/\[\[(\w+)\]\]/g, (match, cid) => {
+    const c = citeMap[cid];
+    return c ? `<span class="cite" data-target="${c.id}">${c.label}</span>` : '';
+  });
+}
+
 function renderBotResponse(payload) {
   const div = document.createElement('div');
   div.className = 'msg bot';
@@ -32,11 +50,46 @@ function renderBotResponse(payload) {
   const citeMap = {};
   (payload.citations || []).forEach(c => citeMap[c.id] = c);
 
-  const withBreaks = payload.answer.replace(/\n/g, '<br>');
-bubble.innerHTML = withBreaks.replace(/\[\[(\w+)\]\]/g, (match, cid) => {
-    const c = citeMap[cid];
-    return c ? `<span class="cite" data-target="${c.id}">${c.label}</span>` : '';
-  });
+  if (payload.headline) {
+    // Case-query answer: risk badge + plain-English reasons list
+    const riskLine = document.createElement('div');
+    riskLine.className = 'risk-line';
+    riskLine.innerHTML = `
+      <span class="risk-badge risk-badge--${payload.risk_class}">${payload.risk_class === 'warn' ? 'HIGH RISK' : 'LOW RISK'}</span>
+      <span class="risk-headline">${payload.headline}</span>
+    `;
+    bubble.appendChild(riskLine);
+
+    if (payload.headline_detail) {
+      const detail = document.createElement('div');
+      detail.className = 'risk-detail';
+      detail.textContent = payload.headline_detail;
+      bubble.appendChild(detail);
+    }
+
+    if (payload.reasons && payload.reasons.length) {
+      const label = document.createElement('div');
+      label.className = 'reason-label';
+      label.textContent = 'Why:';
+      bubble.appendChild(label);
+
+      const list = document.createElement('ul');
+      list.className = 'reason-list';
+      payload.reasons.forEach(r => {
+        const li = document.createElement('li');
+        li.innerHTML = withInlineCitations(r, citeMap);
+        list.appendChild(li);
+      });
+      bubble.appendChild(list);
+    }
+  } else {
+    // Concept answer or "not found" fallback: plain text with line breaks + inline citations
+    const withBreaks = (payload.answer || '').replace(/\n/g, '<br>');
+    const withCites = withInlineCitations(withBreaks, citeMap);
+    const textDiv = document.createElement('div');
+    textDiv.innerHTML = withCites;
+    bubble.appendChild(textDiv);
+  }
 
   (payload.citations || []).forEach(c => {
     const detail = document.createElement('div');
@@ -78,15 +131,7 @@ bubble.innerHTML = withBreaks.replace(/\[\[(\w+)\]\]/g, (match, cid) => {
 
   chatScroll.appendChild(div);
   chatScroll.scrollTop = chatScroll.scrollHeight;
-
-  bubble.querySelectorAll('.cite').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const detailEl = document.getElementById(chip.dataset.target);
-      const isOpen = detailEl.classList.toggle('open');
-      chip.classList.toggle('active', isOpen);
-      if (isOpen) logToLedger(chip, detailEl.textContent);
-    });
-  });
+  wireCitationChips(bubble, citeMap);
 }
 
 async function sendMessage(text) {

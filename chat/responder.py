@@ -4,10 +4,9 @@ entirely from data already cached by audit/management/commands/*.
 
 Deliberately does NOT call an LLM here. Every number and feature name in the
 answer is read directly from the database, so the answer is correct by
-construction — there's no generation step that could drift from the real
+construction - there's no generation step that could drift from the real
 SHAP value or invent a detail. This is the "verified answer" guarantee for
-the case-query path specifically (the concept-Q&A path in Phase 2 will use
-real generation, since that side has no single ground-truth number to match).
+the case-query path specifically.
 """
 
 import re
@@ -39,29 +38,48 @@ CATEGORICAL_BASES = sorted(
     reverse=True,
 )
 
+ID_COLUMNS = {
+    'admission_type_id',
+    'discharge_disposition_id',
+    'admission_source_id',
+}
+
+# Plain-English label for every feature the model can cite - this is the
+# single biggest lever for readability: nobody outside a data science
+# class knows what "num_lab_procedures" means, but everyone understands
+# "how many lab tests were done during this stay".
+FEATURE_PLAIN = {
+    'number_inpatient': 'how many times they were admitted to a hospital before',
+    'number_emergency': 'how many emergency room visits they have had',
+    'number_outpatient': 'how many outpatient visits they have had',
+    'num_medications': 'how many medications they were given during this stay',
+    'num_procedures': 'how many medical procedures were done during this stay',
+    'num_lab_procedures': 'how many lab tests were done during this stay',
+    'time_in_hospital': 'how many days they stayed in the hospital',
+    'number_diagnoses': 'how many different diagnoses were recorded for them',
+    'admission_type_id': 'how they were admitted to the hospital',
+    'discharge_disposition_id': 'where they were sent after this hospital stay',
+    'admission_source_id': 'where this admission was referred from',
+    'age': 'their age group',
+    'race': 'their recorded race',
+    'gender': 'their gender',
+    'max_glu_serum': 'their glucose test result',
+    'A1Cresult': 'their A1C (blood sugar) test result',
+    'change': 'whether their diabetes medicine was changed during this stay',
+    'diabetesMed': 'whether they are on diabetes medication',
+}
+
 
 def humanize_feature(feature_name, feature_value):
     """Turn a raw/one-hot column name into a natural-language phrase.
-
-    ID columns are translated using IDS_mapping.csv.
-    One-hot encoded columns reconstruct the original category.
-    Other numeric columns are displayed directly.
+    Used for the technical citation detail text (shown on click), not the
+    main plain-English answer - see _plain_reason for that.
     """
-
-    id_columns = {
-        'admission_type_id',
-        'discharge_disposition_id',
-        'admission_source_id',
-    }
-
-    if feature_name in id_columns:
+    if feature_name in ID_COLUMNS:
         description = get_id_description(feature_name, feature_value)
-
         if description:
             label = feature_name.replace('_id', '').replace('_', ' ')
             return f"{label} is '{description}'"
-
-        # Safe fallback if a code is not found in the mapping.
         return f"{feature_name.replace('_', ' ')} = {feature_value}"
 
     if feature_name in RAW_NUMERIC_COLS:
@@ -69,11 +87,9 @@ def humanize_feature(feature_name, feature_value):
 
     for base in CATEGORICAL_BASES:
         prefix = base + '_'
-
         if feature_name.startswith(prefix):
             raw_val = feature_name[len(prefix):].rstrip(')')
             label = base.replace('_', ' ')
-
             if feature_value == 'True':
                 return f"{label} is '{raw_val}'"
             else:
@@ -82,10 +98,67 @@ def humanize_feature(feature_name, feature_value):
     return f"{feature_name} = {feature_value}"
 
 
+def _base_key(feature_name):
+    """Map a raw/one-hot column name back to its FEATURE_PLAIN key."""
+    if feature_name in ID_COLUMNS or feature_name in RAW_NUMERIC_COLS:
+        return feature_name
+    for base in CATEGORICAL_BASES:
+        if feature_name.startswith(base + '_'):
+            return base
+    return feature_name
+
+
+def _value_clause(feature_name, feature_value):
+    """The 'value' half of a plain-English sentence, e.g. '0' for a count,
+    or "'Discharged to home'" for a mapped ID, or "'50-60'" for a bracket.
+    """
+    if feature_name in ID_COLUMNS:
+        desc = get_id_description(feature_name, feature_value)
+        return f"'{desc}'" if desc else str(feature_value)
+
+    if feature_name in RAW_NUMERIC_COLS:
+        return str(feature_value)
+
+    for base in CATEGORICAL_BASES:
+        prefix = base + '_'
+        if feature_name.startswith(prefix):
+            raw_val = feature_name[len(prefix):].rstrip(')')
+            if feature_value == 'True':
+                return f"'{raw_val}'"
+            return f"something other than '{raw_val}'"
+
+    return str(feature_value)
+
+
+def _plain_reason(feature_name, feature_value, shap_value, cid):
+    """Builds one plain-English bullet explaining a single SHAP-driven
+    reason: what the factor is, its value, and how strongly/which way it
+    pushed the prediction - no SHAP jargon, no raw column names.
+    """
+    base = _base_key(feature_name)
+    label = FEATURE_PLAIN.get(base, base.replace('_', ' '))
+    value_clause = _value_clause(feature_name, feature_value)
+
+    magnitude = abs(shap_value)
+    if magnitude >= 0.25:
+        strength = 'strongly'
+    elif magnitude >= 0.10:
+        strength = 'moderately'
+    else:
+        strength = 'slightly'
+    direction_word = 'raised' if shap_value > 0 else 'lowered'
+
+    if feature_name in RAW_NUMERIC_COLS:
+        clause = f"{label.capitalize()}: {value_clause}."
+    else:
+        clause = f"{label.capitalize()} is {value_clause}."
+
+    return f"{clause} This {strength} {direction_word} their overall risk score. [[{cid}]]"
+
+
 def extract_encounter_id(message):
     """Very simple intent detection: any 4+ digit number is treated as an
-    encounter ID lookup. Good enough for Phase 1; Phase 2 will need real
-    intent classification once concept questions (no ID present) are added.
+    encounter ID lookup.
     """
     match = re.search(r'\d{4,}', message)
     return int(match.group()) if match else None
@@ -101,20 +174,16 @@ def _latest_fairness(attr):
 
 def answer_case_query(encounter_id):
     """Main entry point: given an encounter_id, return a full answer payload
-    (text + citations + ART scorecard + ethics-lens commentary + optional
-    group-bias warning), built entirely from cached DB rows.
+    - a plain-English headline + risk level, a short list of plain-English
+    reasons (each backed by a clickable technical citation), an ART
+    scorecard, ethics-lens commentary, and an optional group-bias warning.
     """
-
     patient = Patient.objects.filter(encounter_id=encounter_id).first()
 
     if not patient:
-        # Test-set only (see train_model.py) — if the ID isn't found, it's
-        # most likely a training-set patient, so we suggest real cached IDs
-        # instead of just saying "not found".
         sample_ids = list(
             Patient.objects.values_list('encounter_id', flat=True)[:5]
         )
-
         return {
             'type': 'case',
             'answer': (
@@ -122,49 +191,29 @@ def answer_case_query(encounter_id):
                 f"in the test set. Try one of these instead: "
                 f"{', '.join(str(s) for s in sample_ids)}."
             ),
-            'citations': [],
-            'art': None,
-            'lenses': [],
-            'flag_note': None,
+            'citations': [], 'art': None, 'lenses': [], 'flag_note': None,
         }
 
     prediction = Prediction.objects.filter(
-        patient=patient,
-        model_version=MODEL_VERSION
+        patient=patient, model_version=MODEL_VERSION
     ).first()
 
     shap_rows = list(
-        ShapExplanation.objects.filter(
-            patient=patient,
-            model_version=MODEL_VERSION
-        )
+        ShapExplanation.objects.filter(patient=patient, model_version=MODEL_VERSION)
     )
-
     shap_rows.sort(key=lambda r: abs(r.shap_value), reverse=True)
 
-    # Build the top-3 cited features into both the answer text
-    # and a separate citations list.
     citations = []
-    feature_mentions = []
+    reasons = []
     protected_in_top = []
 
     for i, row in enumerate(shap_rows[:3]):
         cid = f'F{i + 1}'
-
-        direction = (
-            'toward high-risk'
-            if row.shap_value > 0
-            else 'toward low-risk'
-        )
-
-        readable = humanize_feature(
-            row.feature_name,
-            row.feature_value
-        )
+        direction = 'toward high-risk' if row.shap_value > 0 else 'toward low-risk'
 
         citations.append({
             'id': cid,
-            'label': f'SHAP #{i + 1}',
+            'label': f'Evidence #{i + 1}',
             'detail': (
                 f'Feature: {row.feature_name} = {row.feature_value} | '
                 f'SHAP value: {row.shap_value:+.3f} ({direction}) | '
@@ -172,74 +221,58 @@ def answer_case_query(encounter_id):
             ),
         })
 
-        feature_mentions.append(
-            f'{readable} [[{cid}]]'
-        )
+        reasons.append(_plain_reason(row.feature_name, row.feature_value, row.shap_value, cid))
 
-        # Flag if a protected attribute is among this patient's
-        # top drivers.
-        if any(
-            p in row.feature_name.lower()
-            for p in ['race', 'gender']
-        ):
+        if any(p in row.feature_name.lower() for p in ['race', 'gender']):
             protected_in_top.append(row.feature_name)
 
-    risk_label = (
-        'high-risk'
-        if prediction.predicted_label
-        else 'lower-risk'
-    )
+    risk_percent = round(prediction.risk_score * 100)
+    if prediction.predicted_label:
+        risk_level, risk_class = 'HIGH RISK', 'warn'
+        headline_detail = f"About a {risk_percent}% estimated chance of being readmitted within 30 days."
+    else:
+        risk_level, risk_class = 'LOW RISK', 'ok'
+        headline_detail = f"About a {risk_percent}% estimated chance of being readmitted within 30 days."
 
-    answer = (
-        f"Patient #{encounter_id} was predicted {risk_label} "
-        f"for 30-day readmission "
-        f"(model score: {prediction.risk_score:.2f}). "
-        f"The top contributing factors were "
-        + ', '.join(feature_mentions)
-        + '.'
-    )
-
-    # Group-level bias warning.
+    # Group-level bias warning, plain English.
     dpd_age = _latest_fairness('age_bracket')
-
     flag_note = None
-
     if dpd_age and abs(dpd_age.value) > 0.05:
         flag_note = (
-            f"⚠ Group-level audit: demographic-parity gap by age bracket "
-            f"is {dpd_age.value:.3f} for this model — above the 0.05 "
-            f"threshold. This individual prediction may still be accurate, "
-            f"but the model warrants a wider fairness review."
+            "⚠ Overall, this model tends to flag some age groups as high-risk "
+            "more often than others, by a margin larger than we consider "
+            "acceptable. This specific prediction may still be accurate, but "
+            "the model as a whole should be reviewed for age-related bias."
         )
 
-    # Ethical-theory framing.
     lenses = [
         {
             'name': 'Utilitarian',
             'text': (
-                "Flagging trades some false alarms for fewer missed "
-                "readmissions — model AUC is 0.653 on held-out data, "
-                "versus 0.644 for the interpretable baseline."
+                "This model is tuned to catch more real readmission risks than "
+                "it misses, even if that means a few extra false alarms - the "
+                "goal is fewer missed cases overall, not a perfect score on "
+                "every single patient."
             ),
             'flagged': False,
         },
         {
             'name': 'Deontological',
             'text': (
-                f"Protected attributes ({', '.join(protected_in_top)}) "
-                f"appear among this patient's top drivers — worth review."
-                if protected_in_top
-                else
-                "No protected attribute (race/gender) appears among "
-                "this patient's top SHAP drivers."
+                "This decision was influenced in part by a protected trait "
+                "like race or gender - that deserves a closer look."
+                if protected_in_top else
+                "This decision was based on medical history and hospital-stay "
+                "details, not on protected traits like race or gender."
             ),
             'flagged': bool(protected_in_top),
         },
         {
             'name': 'Virtue',
             'text': (
-                "A cautious clinician would treat this score as one input "
-                "among several, not a standalone diagnosis."
+                "Treat this as one extra piece of information for hospital "
+                "staff, not a diagnosis. A careful clinician would double-check "
+                "it against the full picture before acting on it."
             ),
             'flagged': False,
         },
@@ -247,14 +280,15 @@ def answer_case_query(encounter_id):
 
     return {
         'type': 'case',
-        'answer': answer,
+        'headline': f"Patient #{encounter_id} — {risk_level}",
+        'headline_detail': headline_detail,
+        'risk_class': risk_class,
+        'reasons': reasons,
         'citations': citations,
         'art': {
             'accountability': f'Logged · {MODEL_VERSION}',
             'responsibility': 'Model card on file',
-            'transparency': (
-                f'{len(shap_rows)} SHAP features cached for this patient'
-            ),
+            'transparency': f'{len(shap_rows)} pieces of evidence cached for this patient',
         },
         'lenses': lenses,
         'flag_note': flag_note,
@@ -262,12 +296,8 @@ def answer_case_query(encounter_id):
 
 
 def answer_concept_query(message):
-    """Answers a general concept question (GDPR, ethics theories, fairness,
-    etc.) by retrieving the single best-matching corpus document via TF-IDF
-    and citing it - as opposed to answer_case_query, which cites cached
-    SHAP/Fairlearn data. Returns the document's full cleaned body rather
-    than a single extracted paragraph, since short corpus docs answer more
-    reliably as a whole than as a fragment picked out of context.
+    """Answers a general concept question by retrieving the single
+    best-matching corpus document via TF-IDF and citing it.
     """
     from knowledge.retriever import retrieve_best_doc, clean_body
 

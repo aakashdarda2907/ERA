@@ -1,0 +1,19 @@
+1. The problem we solved
+Most "AI ethics chatbots" try to have an LLM judge its own answers against ethical theories (utilitarianism, deontology, etc.) — but that's subjective theater with no verifiable basis; if someone asks "how did you compute that ethics score," there's no real answer. Meanwhile, the syllabus asks for concrete, gradeable techniques: fairness metrics, explainability (SHAP/LIME), governance/audit trails. So the actual problem we solved was: make AI ethics evaluation quantifiable and evidence-based, not opinion-based.
+
+2. What we built and how it works
+WardAudit is a chatbot with two distinct query paths, both grounded in real computed data — never free-form LLM generation for facts:
+
+Case queries ("why was patient X flagged?") — pull real cached SHAP values and Fairlearn fairness metrics from a database, and construct the answer from those exact numbers via templates.
+Concept queries ("what is GDPR?", "explain deontology") — retrieve the best-matching document from a small curated knowledge base (TF-IDF similarity search) and answer from that document, citing it.
+Every claim the bot makes traces back to something concrete — a SHAP value, a fairness metric, or a specific source document — never invented.
+
+3. Stack and why
+
+Django (Python), because the real work — scikit-learn, XGBoost, SHAP, Fairlearn — is all Python; keeping it one codebase avoided a fragile two-language setup.
+Two models trained on purpose (Logistic Regression + XGBoost) to concretely demonstrate the "black box problem": the interpretable model is weaker (0.644 AUC) but you can read its logic directly; XGBoost is stronger (0.653) but opaque — which is exactly why SHAP explainability was built specifically around it.
+SHAP + Fairlearn for real audit numbers (per-patient explanations, group fairness gaps) instead of asking a model to self-report ethics.
+TF-IDF retrieval (not a heavy embedding model) for the concept-answering side, since our corpus is small — appropriate engineering, not a shortcut.
+
+4. What makes it unique, and its use
+The novelty isn't "a chatbot that talks about ethics" — it's that every ethical/fairness claim is backed by a specific, inspectable piece of evidence (a SHAP value, a Fairlearn metric, a cited document) rather than a model's opinion of itself. Practically, it's a decision-support and audit tool: a hospital administrator or reviewer could ask it why an AI model flagged a specific patient, whether the model is biased against any group, and get answers with receipts — directly demonstrating Accountability, Responsibility, and Transparency (the ART framework) as literal system properties, not slogans.
