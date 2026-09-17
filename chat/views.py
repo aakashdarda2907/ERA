@@ -25,7 +25,7 @@ def ask(request):
     message = body.get('message', '')
     encounter_id = extract_encounter_id(message)
     if encounter_id:
-        payload = answer_case_query(encounter_id)
+        payload = answer_case_query(encounter_id, message)
     else:
         payload = answer_concept_query(message)
     return JsonResponse(payload)
