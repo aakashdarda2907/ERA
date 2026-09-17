@@ -155,14 +155,12 @@ def _plain_reason(feature_name, feature_value, shap_value, cid):
 
     return f"{clause} This {strength} {direction_word} their overall risk score. [[{cid}]]"
 
-
 def extract_encounter_id(message):
     """Very simple intent detection: any 4+ digit number is treated as an
     encounter ID lookup.
     """
     match = re.search(r'\d{4,}', message)
     return int(match.group()) if match else None
-
 
 def _latest_fairness(attr):
     return FairnessMetric.objects.filter(
@@ -464,4 +462,26 @@ def answer_concept_query(message):
             'detail': f'Corpus document: {doc.slug}.md | Match confidence: {score:.2f}',
         }],
         'art': None, 'lenses': [], 'flag_note': None,
+    }
+
+def extract_comparison_ids(message):
+    """Extract two patient encounter IDs from a comparison request."""
+    ids = re.findall(r'\d{4,}', message)
+    if len(ids) >= 2:
+        return int(ids[0]), int(ids[1])
+    return None
+
+
+def answer_comparison_query(first_id, second_id):
+    """Return the full case-query result for two patients side by side.
+    Reuses answer_case_query as-is, so comparison answers stay just as
+    evidence-grounded as single-patient ones - nothing new is computed.
+    """
+    return {
+        'type': 'comparison',
+        'patients': [
+            {'encounter_id': first_id, 'data': answer_case_query(first_id)},
+            {'encounter_id': second_id, 'data': answer_case_query(second_id)},
+        ],
+        'citations': [], 'art': {}, 'lenses': [], 'flag_note': '',
     }

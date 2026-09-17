@@ -23,6 +23,12 @@
           <div class="bubble">Ask about a cached patient, e.g. "why was patient 12522 flagged?"</div>
         </div>
       </div>
+      <div class="suggestions" id="suggestions">
+        {% for q in suggestions %}
+        <button type="button" class="sugg" data-question="{{ q }}">{{ q }}</button>
+        {% endfor %}
+        <button type="button" class="sugg sugg-random" id="randomBtn">🎲 Random patient</button>
+      </div>
       <div class="input-row">
         <input type="text" id="msgInput" placeholder="Ask about a case…">
         <button id="sendBtn">Ask</button>
