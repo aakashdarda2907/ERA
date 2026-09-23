@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WardAudit — Explanation Disparity</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --paper:#F2F4F3; --ink:#16241F; --ink-soft:#5C665F; --hairline:#C9C2B4;
+    --teal:#2F6F62; --teal-soft:#E3ECE9; --amber:#B5542B; --amber-soft:#F3E4DB;
+    --white:#FFFFFF;
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family:'IBM Plex Sans', sans-serif; background:var(--paper); color:var(--ink);
+    margin:0; padding:0 0 60px;
+  }
+  .wrap{max-width:1150px; margin:0 auto; padding:32px 24px;}
+
+  header.top{
+    display:flex; align-items:baseline; justify-content:space-between;
+    border-bottom:1px solid var(--hairline); padding-bottom:16px; margin-bottom:28px;
+    flex-wrap:wrap; gap:8px;
+  }
+  header.top .brand{font-family:'Newsreader', serif; font-size:1.3rem; font-weight:600;}
+  header.top .brand em{font-style:italic; color:var(--teal);}
+  header.top a{color:var(--ink-soft); text-decoration:none; font-size:0.8rem; font-family:'IBM Plex Mono', monospace;}
+  header.top a:hover{color:var(--teal);}
+
+  h1{font-family:'Newsreader', serif; font-size:1.9rem; font-weight:600; margin:0 0 6px;}
+  .subtitle{color:var(--ink-soft); font-size:0.95rem; margin-bottom:32px; max-width:760px; line-height:1.5;}
+
+  /* --- Novelty Q&A grid --- */
+  .novelty-label{
+    font-family:'IBM Plex Mono', monospace; font-size:0.7rem; text-transform:uppercase;
+    letter-spacing:0.1em; color:var(--teal); margin-bottom:10px; display:block;
+  }
+  .qa-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:36px;
+  }
+  @media (max-width:760px){ .qa-grid{grid-template-columns:1fr;} }
+  .qa-card{
+    background:var(--ink); border-radius:12px; padding:22px 24px; position:relative; overflow:hidden;
+  }
+  .qa-card::before{
+    content:attr(data-q); position:absolute; top:-18px; right:-6px; font-family:'Newsreader', serif;
+    font-size:5.5rem; font-weight:700; color:rgba(255,255,255,0.05); line-height:1;
+  }
+  .qa-card h3{
+    font-family:'Newsreader', serif; font-style:italic; font-weight:500; font-size:1.08rem;
+    color:var(--white); margin:0 0 12px; position:relative; z-index:1;
+  }
+  .qa-card ul{margin:0; padding-left:18px; position:relative; z-index:1;}
+  .qa-card li{color:#D7DED9; font-size:0.86rem; line-height:1.55; margin-bottom:7px;}
+  .qa-card li:last-child{margin-bottom:0;}
+  .qa-card b{color:var(--white);}
+  .qa-card.accent{background:var(--teal);}
+  .qa-card.accent li{color:#DCEBE7;}
+  .qa-card.accent b{color:var(--white);}
+
+  /* --- Top finding --- */
+  .finding{
+    background:var(--amber-soft); border:1px solid rgba(181,84,43,0.35); border-radius:10px;
+    padding:18px 22px; margin-bottom:32px; font-size:0.92rem; line-height:1.6;
+  }
+  .finding .label{
+    font-family:'IBM Plex Mono', monospace; font-size:0.68rem; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--amber); display:block; margin-bottom:8px;
+  }
+  .finding b{color:var(--amber);}
+
+  h2.section{font-family:'Newsreader', serif; font-size:1.2rem; font-weight:600; margin:40px 0 6px;}
+  .section-note{color:var(--ink-soft); font-size:0.85rem; margin-bottom:16px; max-width:700px;}
+
+  .chart-card{
+    background:var(--white); border:1px solid var(--hairline); border-radius:12px;
+    padding:22px; margin-bottom:16px;
+  }
+
+  table{border-collapse:collapse; width:100%; margin-bottom:14px; font-size:0.82rem;
+        background:var(--white); border-radius:10px; overflow:hidden; border:1px solid var(--hairline);}
+  th, td{padding:9px 12px; text-align:center; border:1px solid var(--hairline);}
+  th{background:var(--ink); color:var(--white); font-weight:500; font-family:'IBM Plex Mono', monospace; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.03em;}
+  td.feature-name{text-align:left; font-weight:600; background:var(--paper);}
+  td{font-family:'IBM Plex Mono', monospace; font-size:0.78rem; cursor:default;}
+
+  .legend{display:flex; align-items:center; gap:10px; font-size:0.75rem; color:var(--ink-soft); margin-bottom:12px;}
+  .legend .scale{display:flex; align-items:center; gap:4px;}
+  .legend .swatch{width:90px; height:10px; border-radius:4px; background:linear-gradient(to right, #F2F4F3, #B5542B);}
+
+  .no-data{padding:60px 20px; text-align:center; color:var(--ink-soft); background:var(--white); border-radius:10px; border:1px dashed var(--hairline);}
+  code{background:var(--teal-soft); padding:2px 6px; border-radius:4px; font-family:'IBM Plex Mono', monospace; font-size:0.85em;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">Ward<em>Audit</em></div>
+    <a href="/report/">&larr; Back to model report</a>
+  </header>
+
+  <h1>Explanation Disparity Analysis</h1>
+  <div class="subtitle">
+    Every fairness audit so far has asked whether the model's <i>predictions</i> are fair across groups.
+    This page asks a different question: does the model <i>reason</i> about patients differently depending
+    on who they are — even when its accuracy looks acceptable for everyone?
+  </div>
+
+  <span class="novelty-label">Why this page is a novel contribution</span>
+  <div class="qa-grid">
+    <div class="qa-card" data-q="1">
+      <h3>What is this?</h3>
+      <ul>
+        <li>For every feature, we compare its <b>SHAP contribution distribution</b> inside one demographic subgroup against the distribution across the whole population.</li>
+        <li>The gap between those two distributions is measured with the <b>Wasserstein distance</b> — a real statistical divergence, not a visual guess.</li>
+        <li>A high distance means: the model leans on that factor very differently for this group of patients.</li>
+      </ul>
+    </div>
+    <div class="qa-card" data-q="2">
+      <h3>Why is this different from our fairness audit?</h3>
+      <ul>
+        <li>Fairlearn (elsewhere in this project) checks whether <b>outcomes</b> are fair — similar flag rates, similar error rates across groups.</li>
+        <li>This page checks whether the <b>reasoning</b> is fair — a model can pass every outcome check while still weighing the same clinical factor unevenly by group.</li>
+        <li>Outcome fairness and explanation fairness are measuring two different things, and neither implies the other.</li>
+      </ul>
+    </div>
+    <div class="qa-card accent" data-q="3">
+      <h3>Why is this a novelty?</h3>
+      <ul>
+        <li>Our literature review (SHAP, Fairlearn, ART, GDPR, NITI Aayog) never poses this specific question — every source audits outcomes, not explanations.</li>
+        <li>It extends the fairness-auditing question from <b>"are the outcomes fair?"</b> to <b>"is the reasoning fair?"</b> — a distinct, underexplored angle in applied XAI.</li>
+        <li>Every claim is a concrete, falsifiable number (a real distance, a real subgroup, a real feature) — not a qualitative impression.</li>
+      </ul>
+    </div>
+    <div class="qa-card accent" data-q="4">
+      <h3>How is this useful?</h3>
+      <ul>
+        <li>Flags exactly <b>which factor</b> and <b>which group</b> need closer clinical review — not just "the model might be biased."</li>
+        <li>Lets a hospital catch a subtler failure mode: correct-looking predictions built on unevenly-applied reasoning.</li>
+        <li>Gives an auditor a ranked, prioritized list (below) of where to look first, instead of manually inspecting every feature/group pair.</li>
+      </ul>
+    </div>
+  </div>
+
+  {% if not has_data %}
+    <div class="no-data">No data yet — run <code>python manage.py analyze_explanation_disparity</code> first.</div>
+  {% else %}
+
+    <div class="finding">
+      <span class="label">Top single finding</span>
+      The feature <b>{{ top_feature }}</b> shows the largest explanation divergence across
+      <b>{{ top_attribute }}</b> subgroups (Wasserstein distance = <b>{{ top_distance }}</b>).
+      The model weighs this factor most heavily for <b>{{ high_group }}</b> and least for
+      <b>{{ low_group }}</b>.
+    </div>
+
+    <h2 class="section">Disparity leaderboard</h2>
+    <div class="section-note">The 10 most divergent feature &times; subgroup pairs found across every protected attribute — where an auditor should look first.</div>
+    <div class="chart-card">
+      <canvas id="leaderboardChart" height="320"></canvas>
+    </div>
+
+    <h2 class="section">Direct comparison — most divergent subgroups</h2>
+    <div class="section-note">How the top feature's mean SHAP contribution differs between the highest- and lowest-weighted subgroups.</div>
+    <div class="chart-card">
+      <canvas id="compareChart" height="260"></canvas>
+    </div>
+
+    {% for attr, data in heatmaps.items %}
+      <h2 class="section">Divergence heatmap — {{ attr }}</h2>
+      <div class="section-note">Rows are sorted so the most striking features appear first. Darker cells = greater divergence from the overall population.</div>
+      <div class="legend">
+        <span class="scale">Low<span class="swatch"></span>High</span>
+      </div>
+      <table>
+        <tr>
+          <th style="text-align:left;">Feature</th>
+          {% for sg in data.subgroups %}<th>{{ sg }}</th>{% endfor %}
+        </tr>
+        {% for row in data.rows %}
+        <tr>
+          <td class="feature-name">{{ row.feature }}</td>
+          {% for cell in row.cells %}
+            <td style="background:{{ cell.color }};" title="Wasserstein distance: {{ cell.value }}">{{ cell.value }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </table>
+    {% endfor %}
+
+    <script>
+      new Chart(document.getElementById('leaderboardChart'), {
+        type: 'bar',
+        data: {
+          labels: {{ leaderboard_labels|safe }},
+          datasets: [{
+            label: 'Wasserstein distance',
+            data: {{ leaderboard_values|safe }},
+            backgroundColor: '#16241F',
+            borderRadius: 4,
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          plugins: {
+            legend: { display: false },
+            title: { display: true, text: 'Top 10 most divergent findings (higher = model reasons more differently for this group)', font: { size: 13 } },
+            tooltip: {
+              callbacks: {
+                afterLabel: (ctx) => `sample size: n=${ {{ leaderboard_n|safe }}[ctx.dataIndex] }`
+              }
+            }
+          },
+          scales: { x: { grid: { color: '#E7E2D6' } }, y: { grid: { display: false } } }
+        }
+      });
+
+      new Chart(document.getElementById('compareChart'), {
+        type: 'bar',
+        data: {
+          labels: {{ chart_labels|safe }},
+          datasets: [
+            { label: '{{ high_group }}', data: {{ chart_high|safe }}, backgroundColor: '#B5542B', borderRadius: 4 },
+            { label: '{{ low_group }}', data: {{ chart_low|safe }}, backgroundColor: '#2F6F62', borderRadius: 4 },
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            title: { display: true, text: 'Mean SHAP contribution — top factors, most divergent subgroups', font: { size: 13 } },
+            legend: { labels: { font: { family: 'IBM Plex Sans' } } }
+          },
+          scales: { y: { beginAtZero: false, grid: { color: '#E7E2D6' } }, x: { grid: { display: false } } }
+        }
+      });
+    </script>
+  {% endif %}
+</div>
+</body>
+</html>

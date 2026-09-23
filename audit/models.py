@@ -67,3 +67,25 @@ class FairnessMetric(models.Model):
     value = models.FloatField()
     detail = models.JSONField(blank=True, null=True)         # per-group breakdown
     created_at = models.DateTimeField(auto_now_add=True)
+
+class ExplanationDisparity(models.Model):
+    """Stores how differently the model 'reasons' about a feature for one
+    demographic subgroup vs. the overall population - measured via Wasserstein
+    distance between the subgroup's SHAP-contribution distribution for that
+    feature and the global distribution. This is a fairness check on the
+    EXPLANATIONS themselves, not on the predictions (which FairnessMetric
+    already covers) - a model can look fair on outcomes while still reasoning
+    very differently about different groups.
+    """
+    model_version = models.CharField(max_length=50)
+    feature_name = models.CharField(max_length=100)       # base feature, e.g. "number_inpatient", "age"
+    protected_attribute = models.CharField(max_length=50)  # 'race', 'gender', 'age_bracket'
+    subgroup = models.CharField(max_length=100)             # e.g. "AfricanAmerican", "Female", "70-80)"
+    subgroup_mean_shap = models.FloatField()
+    global_mean_shap = models.FloatField()
+    wasserstein_distance = models.FloatField()
+    n = models.IntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['model_version', 'protected_attribute', 'feature_name'])]

@@ -10,6 +10,7 @@ every number shown is a specific, precomputed value, not something
 generated on the fly.
 """
 from django.shortcuts import render
+
 from django.db.models import Avg, Count
 from django.db.models.functions import Abs
 from .models import ModelMetric, FairnessMetric, ShapExplanation
@@ -157,3 +158,110 @@ def risk_assessment(request):
         'xgboost_version': XGBOOST_VERSION,
     }
     return render(request, 'audit/risk_assessment.html', context)
+
+from audit.models import ExplanationDisparity
+
+
+def _color_for_distance(distance, max_distance):
+    """Maps a distance value to a red-intensity background color for the
+    heatmap table - higher divergence = more saturated red.
+    """
+    if max_distance <= 0:
+        return '#F2F4F3'
+    ratio = min(distance / max_distance, 1.0)
+    r = 255
+    g = int(244 - ratio * 140)
+    b = int(243 - ratio * 180)
+    return f'rgb({r},{g},{b})'
+
+
+def explanation_disparity(request):
+    """Renders the Explanation Disparity heatmap and the top-finding
+    comparison chart, entirely from ExplanationDisparity rows already
+    computed and stored by analyze_explanation_disparity.py.
+    """
+    MODEL_VERSION = 'xgboost-v0.1'
+    rows = list(ExplanationDisparity.objects.filter(model_version=MODEL_VERSION))
+
+    if not rows:
+        return render(request, 'audit/disparity.html', {'has_data': False})
+
+    max_distance = max(r.wasserstein_distance for r in rows)
+
+    # --- Heatmap: one table per protected attribute ---
+    heatmaps = {}
+    for attr in ['race', 'gender', 'age_bracket']:
+        attr_rows = [r for r in rows if r.protected_attribute == attr]
+        max_per_feature = {}
+        for r in attr_rows:
+            max_per_feature[r.feature_name] = max(max_per_feature.get(r.feature_name, 0), r.wasserstein_distance)
+        features = sorted(max_per_feature, key=max_per_feature.get, reverse=True)
+        subgroups = sorted(set(r.subgroup for r in attr_rows))
+
+        lookup = {(r.feature_name, r.subgroup): r for r in attr_rows}
+        table = []
+        for feat in features:
+            row_cells = []
+            for sg in subgroups:
+                r = lookup.get((feat, sg))
+                if r:
+                    row_cells.append({
+                        'value': f'{r.wasserstein_distance:.3f}',
+                        'color': _color_for_distance(r.wasserstein_distance, max_distance),
+                    })
+                else:
+                    row_cells.append({'value': '\u2014', 'color': '#F2F4F3'})
+            table.append({'feature': feat, 'cells': row_cells})
+
+        heatmaps[attr] = {'subgroups': subgroups, 'rows': table}
+
+    # --- Top finding + comparison chart ---
+    top = max(rows, key=lambda r: r.wasserstein_distance)
+    same_feature_attr = [
+        r for r in rows
+        if r.feature_name == top.feature_name and r.protected_attribute == top.protected_attribute
+    ]
+    high_group = max(same_feature_attr, key=lambda r: r.subgroup_mean_shap)
+    low_group = min(same_feature_attr, key=lambda r: r.subgroup_mean_shap)
+
+    def top_features_for(subgroup_name, attr):
+        candidates = [r for r in rows if r.protected_attribute == attr and r.subgroup == subgroup_name]
+        candidates.sort(key=lambda r: abs(r.subgroup_mean_shap), reverse=True)
+        return [r.feature_name for r in candidates[:3]]
+
+    union_features = list(dict.fromkeys(
+        top_features_for(high_group.subgroup, top.protected_attribute) +
+        top_features_for(low_group.subgroup, top.protected_attribute)
+    ))
+
+    lookup_top = {(r.feature_name, r.subgroup): r for r in same_feature_attr + rows}
+    chart_labels = union_features
+    chart_high = []
+    chart_low = []
+    for feat in union_features:
+        rh = next((r for r in rows if r.feature_name == feat and r.protected_attribute == top.protected_attribute and r.subgroup == high_group.subgroup), None)
+        rl = next((r for r in rows if r.feature_name == feat and r.protected_attribute == top.protected_attribute and r.subgroup == low_group.subgroup), None)
+        chart_high.append(round(rh.subgroup_mean_shap, 4) if rh else 0)
+        chart_low.append(round(rl.subgroup_mean_shap, 4) if rl else 0)
+
+    ranked = sorted(rows, key=lambda r: r.wasserstein_distance, reverse=True)[:10]
+    leaderboard_labels = [f'{r.feature_name} \u00d7 {r.subgroup} ({r.protected_attribute})' for r in ranked]
+    leaderboard_values = [round(r.wasserstein_distance, 4) for r in ranked]
+    leaderboard_n = [r.n for r in ranked]
+
+    context = {
+        'has_data': True,
+        'heatmaps': heatmaps,
+        'top_feature': top.feature_name,
+        'top_attribute': top.protected_attribute,
+        'top_distance': round(top.wasserstein_distance, 4),
+        'high_group': high_group.subgroup,
+        'low_group': low_group.subgroup,
+        'chart_labels': chart_labels,
+        'chart_high': chart_high,
+        'chart_low': chart_low,
+                'leaderboard_labels': leaderboard_labels,
+        'leaderboard_values': leaderboard_values,
+        'leaderboard_n': leaderboard_n,
+    }
+    return render(request, 'audit/disparity.html', context)
