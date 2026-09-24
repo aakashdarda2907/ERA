@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WardAudit — Explanation Stability</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --paper:#F2F4F3; --ink:#16241F; --ink-soft:#5C665F; --hairline:#C9C2B4;
+    --teal:#2F6F62; --teal-soft:#E3ECE9; --amber:#B5542B; --amber-soft:#F3E4DB;
+    --white:#FFFFFF;
+  }
+  *{box-sizing:border-box;}
+  body{font-family:'IBM Plex Sans', sans-serif; background:var(--paper); color:var(--ink); margin:0; padding:0 0 60px;}
+  .wrap{max-width:1150px; margin:0 auto; padding:32px 24px;}
+
+  header.top{display:flex; align-items:baseline; justify-content:space-between; border-bottom:1px solid var(--hairline); padding-bottom:16px; margin-bottom:28px; flex-wrap:wrap; gap:8px;}
+  header.top .brand{font-family:'Newsreader', serif; font-size:1.3rem; font-weight:600;}
+  header.top .brand em{font-style:italic; color:var(--teal);}
+  header.top .links a{color:var(--ink-soft); text-decoration:none; font-size:0.8rem; font-family:'IBM Plex Mono', monospace; margin-left:16px;}
+  header.top .links a:hover{color:var(--teal);}
+
+  h1{font-family:'Newsreader', serif; font-size:1.9rem; font-weight:600; margin:0 0 6px;}
+  .subtitle{color:var(--ink-soft); font-size:0.95rem; margin-bottom:24px; max-width:760px; line-height:1.5;}
+
+  .axis-banner{
+    display:flex; gap:14px; margin-bottom:32px; flex-wrap:wrap;
+  }
+  .axis-chip{
+    flex:1 1 260px; border-radius:10px; padding:14px 18px; font-size:0.82rem; line-height:1.5;
+  }
+  .axis-chip.fairness{background:var(--teal-soft); border:1px solid rgba(47,111,98,0.3);}
+  .axis-chip.stability{background:var(--amber-soft); border:1px solid rgba(181,84,43,0.3); font-weight:600;}
+  .axis-chip .tag{font-family:'IBM Plex Mono', monospace; font-size:0.65rem; text-transform:uppercase; letter-spacing:0.06em; display:block; margin-bottom:4px;}
+  .axis-chip.fairness .tag{color:var(--teal);}
+  .axis-chip.stability .tag{color:var(--amber);}
+
+  .novelty-label{font-family:'IBM Plex Mono', monospace; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--teal); margin-bottom:10px; display:block;}
+  .qa-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:36px;}
+  @media (max-width:760px){ .qa-grid{grid-template-columns:1fr;} }
+  .qa-card{background:var(--ink); border-radius:12px; padding:22px 24px; position:relative; overflow:hidden;}
+  .qa-card::before{content:attr(data-q); position:absolute; top:-18px; right:-6px; font-family:'Newsreader', serif; font-size:5.5rem; font-weight:700; color:rgba(255,255,255,0.05); line-height:1;}
+  .qa-card h3{font-family:'Newsreader', serif; font-style:italic; font-weight:500; font-size:1.08rem; color:var(--white); margin:0 0 12px; position:relative; z-index:1;}
+  .qa-card ul{margin:0; padding-left:18px; position:relative; z-index:1;}
+  .qa-card li{color:#D7DED9; font-size:0.86rem; line-height:1.55; margin-bottom:7px;}
+  .qa-card li:last-child{margin-bottom:0;}
+  .qa-card b{color:var(--white);}
+  .qa-card.accent{background:var(--amber);}
+  .qa-card.accent li{color:#FBEAE0;}
+  .qa-card.accent b{color:var(--white);}
+
+  .stats-row{display:flex; gap:16px; margin-bottom:32px; flex-wrap:wrap;}
+  .stat-card{flex:1 1 200px; background:var(--white); border:1px solid var(--hairline); border-radius:12px; padding:18px 20px;}
+  .stat-card .num{font-family:'Newsreader', serif; font-size:2rem; font-weight:600; color:var(--amber);}
+  .stat-card .lbl{font-size:0.78rem; color:var(--ink-soft); margin-top:4px; line-height:1.4;}
+
+  .dramatic{background:var(--ink); color:var(--white); border-radius:12px; padding:22px 26px; margin-bottom:32px; font-size:0.9rem; line-height:1.65;}
+  .dramatic .label{font-family:'IBM Plex Mono', monospace; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--amber); display:block; margin-bottom:10px;}
+  .dramatic b{color:var(--white);}
+  .dramatic .pill{display:inline-block; background:rgba(255,255,255,0.12); border-radius:20px; padding:2px 10px; font-family:'IBM Plex Mono', monospace; font-size:0.75rem; margin:0 3px;}
+
+  h2.section{font-family:'Newsreader', serif; font-size:1.2rem; font-weight:600; margin:36px 0 6px;}
+  .section-note{color:var(--ink-soft); font-size:0.85rem; margin-bottom:16px; max-width:700px;}
+  .chart-card{background:var(--white); border:1px solid var(--hairline); border-radius:12px; padding:22px; margin-bottom:16px;}
+
+  table{border-collapse:collapse; width:100%; margin-bottom:14px; font-size:0.8rem; background:var(--white); border-radius:10px; overflow:hidden; border:1px solid var(--hairline);}
+  th, td{padding:8px 10px; text-align:center; border:1px solid var(--hairline);}
+  th{background:var(--ink); color:var(--white); font-weight:500; font-family:'IBM Plex Mono', monospace; font-size:0.68rem; text-transform:uppercase;}
+  td{font-family:'IBM Plex Mono', monospace; font-size:0.75rem;}
+  .flip-yes{color:var(--amber); font-weight:700;}
+  .flip-no{color:var(--ink-soft);}
+
+  .no-data{padding:60px 20px; text-align:center; color:var(--ink-soft); background:var(--white); border-radius:10px; border:1px dashed var(--hairline);}
+  code{background:var(--teal-soft); padding:2px 6px; border-radius:4px; font-family:'IBM Plex Mono', monospace; font-size:0.85em;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">Ward<em>Audit</em></div>
+    <div class="links"><a href="/report/">&larr; Model report</a><a href="/report/disparity/">Explanation Disparity &rarr;</a></div>
+  </header>
+
+  <h1>Explanation Stability Audit</h1>
+  <div class="subtitle">
+    Does the model's explanation hold up under a small, realistic change to a patient's data — or can the
+    same-looking prediction be justified by a completely different story a moment later?
+  </div>
+
+  <div class="axis-banner">
+    <div class="axis-chip fairness">
+      <span class="tag">Fairness axis (Explanation Disparity)</span>
+      Does the model reason differently depending on <b>who</b> the patient is?
+    </div>
+    <div class="axis-chip stability">
+      <span class="tag">Stability axis (this page)</span>
+      Does the model's reasoning hold up under a tiny change to <b>what</b> the patient's data says?
+    </div>
+  </div>
+
+  <span class="novelty-label">Why this page is a novel contribution</span>
+  <div class="qa-grid">
+    <div class="qa-card" data-q="1">
+      <h3>What is this?</h3>
+      <ul>
+        <li>We take real cached patients and apply one small, realistic change: <b>number of prior admissions +1</b>.</li>
+        <li>We recompute both the risk score and the full SHAP explanation after the change.</li>
+        <li>We check how many of the original top-3 explanation factors survive that tiny nudge.</li>
+      </ul>
+    </div>
+    <div class="qa-card" data-q="2">
+      <h3>Why is this different from Explanation Disparity?</h3>
+      <ul>
+        <li>Disparity compares reasoning <b>across different patients</b> (by demographic group).</li>
+        <li>Stability compares reasoning for the <b>same patient</b>, before and after a tiny realistic change.</li>
+        <li>Together they form two independent axes of explanation quality — fairness and stability — not one combined idea.</li>
+      </ul>
+    </div>
+    <div class="qa-card accent" data-q="3">
+      <h3>Why is this a novelty?</h3>
+      <ul>
+        <li>Grounded in published XAI-fragility findings (Ghorbani et al. 2019; Alvarez-Melis &amp; Jaakkola 2018) — explanations can shift sharply even when predictions barely move.</li>
+        <li>No source in our literature review checks this for a clinical readmission model specifically, on real cached predictions.</li>
+        <li>It produces a concrete, checkable percentage — not a qualitative claim about trustworthiness.</li>
+      </ul>
+    </div>
+    <div class="qa-card accent" data-q="4">
+      <h3>How is this useful?</h3>
+      <ul>
+        <li>A convincing-looking explanation is not automatically a trustworthy one — this quantifies that gap directly.</li>
+        <li>Flags exactly which real patients have the most fragile explanations, for targeted clinical review.</li>
+        <li>Gives a hospital a concrete stability percentage to disclose alongside accuracy and fairness numbers.</li>
+      </ul>
+    </div>
+  </div>
+
+  {% if not has_data %}
+    <div class="no-data">No data yet — run <code>python manage.py analyze_explanation_stability</code> first.</div>
+  {% else %}
+
+    <div class="stats-row">
+      <div class="stat-card"><div class="num">{{ pct_changed }}%</div><div class="lbl">of sampled patients had at least one top-3 explanation factor change from the +1 nudge</div></div>
+      <div class="stat-card"><div class="num">{{ pct_flipped }}%</div><div class="lbl">had their actual risk classification flip from the same tiny change</div></div>
+      <div class="stat-card"><div class="num">{{ mean_shift }}</div><div class="lbl">average shift in risk score across all {{ n_sampled }} sampled patients</div></div>
+    </div>
+
+    <div class="dramatic">
+      <span class="label">Most dramatic single case</span>
+      Patient <span class="pill">#{{ dramatic.encounter_id }}</span> was originally explained mainly by
+      <b>{{ dramatic.original_top3 }}</b> (score {{ dramatic.original_score|floatformat:2 }}). After
+      <b>{{ dramatic.perturbation }}</b>, the explanation shifted to <b>{{ dramatic.perturbed_top3 }}</b>
+      (score {{ dramatic.perturbed_score|floatformat:2 }})
+      {% if dramatic.classification_flipped %} — and the risk classification itself flipped.{% else %}, with the classification unchanged despite the reasoning shift.{% endif %}
+    </div>
+
+    <h2 class="section">Distribution of explanation stability</h2>
+    <div class="section-note">How many of a patient's original top-3 factors still appear after the perturbation, across all {{ n_sampled }} sampled patients.</div>
+    <div class="chart-card"><canvas id="histChart" height="240"></canvas></div>
+
+    <h2 class="section">Fragility leaderboard</h2>
+    <div class="section-note">The 10 least stable cases found — flipped classifications are prioritized to the top.</div>
+    <table>
+      <tr><th>Patient</th><th>Original score</th><th>Perturbed score</th><th>Flipped?</th><th>Shared factors</th><th>Before</th><th>After</th></tr>
+      {% for r in leaderboard %}
+      <tr>
+        <td>#{{ r.encounter_id }}</td>
+        <td>{{ r.original_score|floatformat:2 }}</td>
+        <td>{{ r.perturbed_score|floatformat:2 }}</td>
+        <td class="{% if r.classification_flipped %}flip-yes{% else %}flip-no{% endif %}">{% if r.classification_flipped %}YES{% else %}no{% endif %}</td>
+        <td>{{ r.shared_top3_count }} / 3</td>
+        <td>{{ r.original_top3 }}</td>
+        <td>{{ r.perturbed_top3 }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    <script>
+      new Chart(document.getElementById('histChart'), {
+        type: 'bar',
+        data: {
+          labels: {{ hist_labels|safe }},
+          datasets: [{ label: 'Number of patients', data: {{ hist_counts|safe }}, backgroundColor: ['#B5542B','#C97A4E','#8FB5A9','#2F6F62'], borderRadius: 4 }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false }, title: { display: true, text: 'How many top-3 explanation factors survive a +1 change in prior-admission count?', font: { size: 13 } } },
+          scales: { y: { beginAtZero: true, grid: { color: '#E7E2D6' } }, x: { grid: { display: false } } }
+        }
+      });
+    </script>
+  {% endif %}
+</div>
+</body>
+</html>

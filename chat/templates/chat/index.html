@@ -13,24 +13,31 @@
 <div class="app">
   <header class="top">
     <div class="brand">Ward<em>Audit</em></div>
-    <div class="meta">live backend · demo data only</div>
+    <div class="meta">evidence-grounded · fairness &amp; explainability audit</div>
   </header>
   <div class="layout">
     <div class="chat-panel">
       <div class="chat-scroll" id="chatScroll">
         <div class="msg bot">
           <div class="label">WardAudit</div>
-          <div class="bubble">Ask about a cached patient, e.g. "why was patient 12522 flagged?"</div>
+          <div class="bubble">
+            Ask me three kinds of things — a specific cached patient ("why was patient 12522 flagged?"),
+            a comparison ("compare GDPR and NITI Aayog"), or an AI ethics concept ("explain deontology").
+            Every answer is grounded in real cached evidence or a cited document — I'll say so plainly
+            if something is outside what I actually know.
+          </div>
         </div>
       </div>
       <div class="suggestions" id="suggestions">
-        {% for q in suggestions %}
-        <button type="button" class="sugg" data-question="{{ q }}">{{ q }}</button>
+                {% for s in suggestions %}
+        <button type="button" class="sugg sugg-{{ s.css_class }}" data-question="{{ s.question }}">{{ s.label }}</button>
         {% endfor %}
+        <button type="button" class="sugg" data-question="Compare GDPR and NITI Aayog">Compare GDPR &amp; NITI Aayog</button>
+        <button type="button" class="sugg" data-question="Explain deontology">Explain deontology</button>
         <button type="button" class="sugg sugg-random" id="randomBtn">🎲 Random patient</button>
       </div>
       <div class="input-row">
-        <input type="text" id="msgInput" placeholder="Ask about a case…">
+        <input type="text" id="msgInput" placeholder="Ask about a case, a comparison, or a concept…">
         <button id="sendBtn">Ask</button>
       </div>
     </div>

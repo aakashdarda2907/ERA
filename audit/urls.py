@@ -7,4 +7,6 @@ urlpatterns = [
     path('', views.report, name='report'),
     path('risk-assessment/', views.risk_assessment, name='risk_assessment'),
     path('disparity/', views.explanation_disparity, name='explanation_disparity'),
+        path('stability/', views.explanation_stability, name='explanation_stability'),
 ]
+

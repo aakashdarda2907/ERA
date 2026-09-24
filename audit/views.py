@@ -265,3 +265,55 @@ def explanation_disparity(request):
         'leaderboard_n': leaderboard_n,
     }
     return render(request, 'audit/disparity.html', context)
+
+
+from audit.models import ExplanationStability
+
+
+def explanation_stability(request):
+    """Renders the Explanation Stability audit - headline stats, a
+    distribution histogram, a fragility leaderboard, and the single most
+    dramatic case - entirely from ExplanationStability rows already computed
+    by analyze_explanation_stability.py.
+    """
+    MODEL_VERSION = 'xgboost-v0.1'
+    rows = list(ExplanationStability.objects.filter(model_version=MODEL_VERSION))
+
+    if not rows:
+        return render(request, 'audit/stability.html', {'has_data': False})
+
+    n = len(rows)
+    changed = sum(1 for r in rows if r.shared_top3_count < 3)
+    flipped = sum(1 for r in rows if r.classification_flipped)
+    pct_changed = round(100 * changed / n, 1)
+    pct_flipped = round(100 * flipped / n, 1)
+    mean_shift = round(sum(r.score_shift for r in rows) / n, 4)
+
+    # Histogram: how many of the top-3 factors survived (0, 1, 2, or 3 shared)
+    hist_counts = [0, 0, 0, 0]
+    for r in rows:
+        hist_counts[r.shared_top3_count] += 1
+
+    # Fragility leaderboard: least stable first, flipped cases prioritized
+    ranked = sorted(rows, key=lambda r: (r.shared_top3_count, -r.classification_flipped, -r.score_shift))[:10]
+
+    # The single most dramatic case: prefer a flipped classification with the
+    # fewest shared factors; fall back to the least stable non-flipped case.
+    flipped_rows = [r for r in rows if r.classification_flipped]
+    if flipped_rows:
+        dramatic = min(flipped_rows, key=lambda r: r.shared_top3_count)
+    else:
+        dramatic = min(rows, key=lambda r: r.shared_top3_count)
+
+    context = {
+        'has_data': True,
+        'n_sampled': n,
+        'pct_changed': pct_changed,
+        'pct_flipped': pct_flipped,
+        'mean_shift': mean_shift,
+        'hist_labels': ['0 of 3 survived', '1 of 3 survived', '2 of 3 survived', '3 of 3 identical'],
+        'hist_counts': hist_counts,
+        'leaderboard': ranked,
+        'dramatic': dramatic,
+    }
+    return render(request, 'audit/stability.html', context)

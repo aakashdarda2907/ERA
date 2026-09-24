@@ -1,19 +1,19 @@
-
 """
 HTTP layer: renders the chat page and handles the /ask/ POST endpoint.
-Routes to case-query (patient ID present) or concept-query (no ID -
-general knowledge-base question) - all actual answer-building logic lives
-in responder.py.
+Routes to case-query (patient ID present), comparison-query (two IDs),
+or concept-query (no ID - general knowledge-base question) - all actual
+answer-building logic lives in responder.py.
 
-Remembers the last patient ID discussed in this browser session, so a
-follow-up like "how confident is this?" (with no ID repeated) still routes
-to the case-query path instead of falling through to concept Q&A.
+Remembers the last patient ID AND the last concept-doc topic discussed in
+this browser session, so a follow-up question that doesn't repeat an ID or
+share much vocabulary with the original question still routes correctly
+instead of falling through to the wrong path or a flat refusal.
 """
 import json
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
-from audit.models import Patient
+from audit.models import Patient, Prediction
 from .responder import (
     answer_case_query,
     answer_comparison_query,
@@ -21,6 +21,8 @@ from .responder import (
     extract_comparison_ids,
     extract_encounter_id,
 )
+
+MODEL_VERSION = 'xgboost-v0.1'
 
 # Keywords that only make sense as a follow-up about a specific patient -
 # used to decide whether a message with no ID should still reuse the last
@@ -38,17 +40,46 @@ FOLLOWUP_KEYWORDS = [
 def index(request):
     """Serves the chat UI page.
 
-    Also pulls a few real cached encounter IDs to seed the suggested-question
-    chips, so the chips are guaranteed to hit a valid patient instead of
-    pointing at an ID that may not exist in this environment's cache.
+    Seeds the suggested-question chips with THREE real cached patients -
+    one clearly high-risk, one near the 0.5 decision boundary, and one
+    clearly low-risk - instead of three random IDs, so a first-time visitor
+    immediately sees the full range of what the model actually predicts.
     """
-    sample_ids = list(
-        Patient.objects.order_by('?').values_list('encounter_id', flat=True)[:3]
-    )
-    suggestions = [f'Why was patient {eid} flagged?' for eid in sample_ids]
+    base_qs = Prediction.objects.filter(model_version=MODEL_VERSION).select_related('patient')
+
+    high = base_qs.order_by('-risk_score').first()
+    low = base_qs.order_by('risk_score').first()
+
+    if base_qs.exists():
+        medium = (
+            base_qs.filter(risk_score__gte=0.45, risk_score__lte=0.55).first()
+            or base_qs.filter(risk_score__gte=0.35, risk_score__lte=0.65).first()
+            or base_qs.order_by('risk_score')[base_qs.count() // 2]
+        )
+    else:
+        medium = None
+
+    level_meta = {
+        'high': ('\U0001F534 High-risk example', 'warn'),
+        'medium': ('\U0001F7E1 Medium-risk example', 'mid'),
+        'low': ('\U0001F7E2 Low-risk example', 'ok'),
+    }
+
+    suggestions = []
+    for level, pred in [('high', high), ('medium', medium), ('low', low)]:
+        if not pred:
+            continue
+        label_text, css_class = level_meta[level]
+        suggestions.append({
+            'label': f'{label_text} ({round(pred.risk_score * 100)}%)',
+            'question': f'Why was patient {pred.patient.encounter_id} flagged?',
+            'css_class': css_class,
+        })
+
     return render(request, 'chat/index.html', {'suggestions': suggestions})
 
-@csrf_exempt
+
+@csrf_exempt  # dev-only convenience - re-enable proper CSRF handling before any real deployment
 def ask(request):
     """Receives a user message and routes it to the right query handler."""
     if request.method != 'POST':
@@ -72,7 +103,10 @@ def ask(request):
         if last_id and looks_like_followup:
             payload = answer_case_query(last_id, message)
         else:
-            payload = answer_concept_query(message)
+            last_topic = request.session.get('last_concept_topic')
+            payload = answer_concept_query(message, last_topic=last_topic)
+            if payload.get('topic'):
+                request.session['last_concept_topic'] = payload['topic']
 
     return JsonResponse(payload)
 

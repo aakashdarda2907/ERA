@@ -8,6 +8,9 @@ let ledgerHasEntries = false;
 const loggedOnce = new Set();
 let isSending = false;
 
+const LENS_ICONS = { 'Utilitarian': '\u2696\ufe0f', 'Deontological': '\ud83d\udcdc', 'Virtue': '\ud83e\udded' };
+const ART_ICONS = { accountability: '\ud83d\udd12', responsibility: '\ud83d\udccb', transparency: '\ud83d\udd0d' };
+
 function addUserMessage(text) {
   const div = document.createElement('div');
   div.className = 'msg user';
@@ -48,7 +51,7 @@ function logToLedger(chipEl, detailText) {
   ledgerList.appendChild(entry);
 }
 
-function wireCitationChips(bubble, citeMap) {
+function wireCitationChips(bubble) {
   bubble.querySelectorAll('.cite').forEach(chip => {
     chip.addEventListener('click', () => {
       const detailEl = document.getElementById(chip.dataset.target);
@@ -64,6 +67,38 @@ function withInlineCitations(text, citeMap) {
     const c = citeMap[cid];
     return c ? `<span class="cite" data-target="${c.id}">${c.label}</span>` : '';
   });
+}
+
+// Renders **bold** markdown as <strong> - the ONLY markdown this app
+// supports, and only ever applied to text that already came from a real
+// cached value or a real retrieved document. Never used to "improve"
+// generated text, because there isn't any.
+function boldify(text) {
+  return text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
+// Formats a full concept/comparison answer: bold markdown, "- " lines
+// grouped into a real <ul>, and blank-line-separated text into <p> blocks -
+// so a multi-paragraph corpus answer reads like a real document, not a
+// wall of text with <br> tags.
+function formatAnswerText(text) {
+  const bolded = boldify(text);
+  const lines = bolded.split('\n');
+  let html = '';
+  let inList = false;
+  lines.forEach(rawLine => {
+    const line = rawLine.trim();
+    if (line.startsWith('- ')) {
+      if (!inList) { html += '<ul class="answer-list">'; inList = true; }
+      html += `<li>${line.slice(2)}</li>`;
+    } else {
+      if (inList) { html += '</ul>'; inList = false; }
+      if (line === '') return;
+      html += `<p class="answer-para">${line}</p>`;
+    }
+  });
+  if (inList) html += '</ul>';
+  return html;
 }
 
 function renderComparison(payload) {
@@ -105,7 +140,8 @@ function renderComparison(payload) {
     const reasonsList = document.createElement('ul');
     (data.reasons || []).forEach((r) => {
       const li = document.createElement('li');
-      li.textContent = r.replace(/\[\[\w+\]\]/g, '').trim();
+      const rawText = typeof r === 'string' ? r : r.text;
+      li.innerHTML = boldify(rawText.replace(/\[\[\w+\]\]/g, '').trim());
       reasonsList.appendChild(li);
     });
     reasonsBox.appendChild(reasonsList);
@@ -126,7 +162,8 @@ function renderBotResponse(payload) {
   if (payload.type === 'comparison') {
     renderComparison(payload);
     return;
-}
+  }
+
   const div = document.createElement('div');
   div.className = 'msg bot';
   div.innerHTML = '<div class="label">WardAudit</div><div class="bubble"></div>';
@@ -136,7 +173,7 @@ function renderBotResponse(payload) {
   (payload.citations || []).forEach(c => citeMap[c.id] = c);
 
   if (payload.headline) {
-    // Case-query answer: risk badge + plain-English reasons list
+    // --- Case-query answer: risk badge + visual SHAP-bar reason list ---
     const riskLine = document.createElement('div');
     riskLine.className = 'risk-line';
     riskLine.innerHTML = `
@@ -153,25 +190,54 @@ function renderBotResponse(payload) {
     }
 
     if (payload.reasons && payload.reasons.length) {
+      bubble.appendChild(document.createElement('hr')).className = 'bubble-divider';
+
       const label = document.createElement('div');
       label.className = 'reason-label';
       label.textContent = 'Why:';
       bubble.appendChild(label);
 
+      const shapMagnitudes = payload.reasons.map(r => Math.abs((typeof r === 'object' ? r.shap_value : 0) || 0));
+      const maxAbs = Math.max(...shapMagnitudes, 0.01);
+
       const list = document.createElement('ul');
       list.className = 'reason-list';
       payload.reasons.forEach(r => {
+        const isStructured = typeof r === 'object';
+        const text = isStructured ? r.text : r;
+        const shapValue = isStructured ? r.shap_value : 0;
+        const direction = isStructured ? r.direction : 'neutral';
+
         const li = document.createElement('li');
-        li.innerHTML = withInlineCitations(r, citeMap);
+        const textDiv = document.createElement('div');
+        textDiv.innerHTML = withInlineCitations(boldify(text), citeMap);
+        li.appendChild(textDiv);
+
+        if (shapValue && direction !== 'neutral') {
+          const pct = Math.max(6, Math.round((Math.abs(shapValue) / maxAbs) * 100));
+          const barWrap = document.createElement('div');
+          barWrap.className = 'shap-bar-wrap';
+          const bar = document.createElement('div');
+          bar.className = 'shap-bar ' + (direction === 'up' ? 'shap-up' : 'shap-down');
+          bar.style.width = pct + '%';
+          barWrap.appendChild(bar);
+          const barLabel = document.createElement('span');
+          barLabel.className = 'shap-bar-label';
+          barLabel.textContent = (direction === 'up' ? '\u2191 raises risk' : '\u2193 lowers risk') + `  (${shapValue.toFixed(3)})`;
+          barWrap.appendChild(barLabel);
+          li.appendChild(barWrap);
+        }
+
         list.appendChild(li);
       });
       bubble.appendChild(list);
     }
   } else {
-    // Concept answer or "not found" fallback: plain text with line breaks + inline citations
-    const withBreaks = (payload.answer || '').replace(/\n/g, '<br>');
-    const withCites = withInlineCitations(withBreaks, citeMap);
+    // --- Concept answer, comparison-of-concepts, or scope-boundary refusal ---
+    const formatted = formatAnswerText(payload.answer || '');
+    const withCites = withInlineCitations(formatted, citeMap);
     const textDiv = document.createElement('div');
+    if (payload.boundary) textDiv.classList.add('scope-note');
     textDiv.innerHTML = withCites;
     bubble.appendChild(textDiv);
   }
@@ -185,23 +251,31 @@ function renderBotResponse(payload) {
   });
 
   if (payload.art) {
+    bubble.appendChild(document.createElement('hr')).className = 'bubble-divider';
     const artRow = document.createElement('div');
     artRow.className = 'art-row';
     artRow.innerHTML = `
-      <div class="art-chip"><div class="t">Accountability</div><div class="v ok">${payload.art.accountability}</div></div>
-      <div class="art-chip"><div class="t">Responsibility</div><div class="v ok">${payload.art.responsibility}</div></div>
-      <div class="art-chip"><div class="t">Transparency</div><div class="v ok">${payload.art.transparency}</div></div>
+      <div class="art-chip"><div class="t">${ART_ICONS.accountability} Accountability</div><div class="v ok">${payload.art.accountability}</div></div>
+      <div class="art-chip"><div class="t">${ART_ICONS.responsibility} Responsibility</div><div class="v ok">${payload.art.responsibility}</div></div>
+      <div class="art-chip"><div class="t">${ART_ICONS.transparency} Transparency</div><div class="v ok">${payload.art.transparency}</div></div>
     `;
     bubble.appendChild(artRow);
   }
 
   if (payload.lenses && payload.lenses.length) {
+    bubble.appendChild(document.createElement('hr')).className = 'bubble-divider';
     const lensRow = document.createElement('div');
     lensRow.className = 'lens-row';
     payload.lenses.forEach(l => {
       const lens = document.createElement('div');
       lens.className = 'lens' + (l.flagged ? ' flagged' : '');
-      lens.innerHTML = `<div class="t">${l.name}</div><div class="d">${l.text}</div>`;
+      const icon = LENS_ICONS[l.name] || '\u2022';
+      const pillClass = l.flagged ? 'pill-warn' : 'pill-ok';
+      const pillText = l.flagged ? 'Review' : 'Clear';
+      lens.innerHTML = `
+        <div class="t">${icon} ${l.name} <span class="lens-pill ${pillClass}">${pillText}</span></div>
+        <div class="d">${l.text}</div>
+      `;
       lensRow.appendChild(lens);
     });
     bubble.appendChild(lensRow);
@@ -216,7 +290,7 @@ function renderBotResponse(payload) {
 
   chatScroll.appendChild(div);
   chatScroll.scrollTop = chatScroll.scrollHeight;
-  wireCitationChips(bubble, citeMap);
+  wireCitationChips(bubble);
 }
 
 function setSendingState(sending) {

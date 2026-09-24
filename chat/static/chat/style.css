@@ -456,3 +456,59 @@
   .comparison-grid { grid-template-columns: 1fr; }
   .comparison-card { padding: 18px; }
 }
+
+.scope-note{
+  border-left:3px solid var(--ink-soft);
+  background:var(--paper);
+  border-radius:0 8px 8px 0;
+  padding:10px 14px;
+  font-size:0.85rem;
+  color:var(--ink-soft);
+  font-style:italic;
+}
+
+/* --- Risk-colored suggestion chips --- */
+.sugg-warn{ border-color:rgba(181,84,43,0.4); }
+.sugg-warn:hover{ border-color:var(--flag); color:var(--flag); }
+.sugg-mid{ border-color:rgba(201,162,39,0.5); }
+.sugg-mid:hover{ border-color:#C9A227; color:#C9A227; }
+.sugg-ok{ border-color:rgba(47,111,98,0.4); }
+
+/* --- Divider between bubble sections --- */
+.bubble-divider{ border:none; border-top:1px solid var(--hairline); margin:12px 0; }
+
+/* --- SHAP visual bars under each reason --- */
+.shap-bar-wrap{
+  display:flex; align-items:center; gap:8px; margin:5px 0 2px;
+  background:var(--paper); border-radius:6px; padding:3px 6px;
+}
+.shap-bar{ height:8px; border-radius:4px; min-width:6px; transition:width .3s ease; }
+.shap-up{ background:var(--flag); }
+.shap-down{ background:var(--verified); }
+.shap-bar-label{
+  font-family:'IBM Plex Mono', monospace; font-size:0.66rem; color:var(--ink-soft); white-space:nowrap;
+}
+
+/* --- Ethics-lens status pills --- */
+.lens-pill{
+  display:inline-block; font-family:'IBM Plex Mono', monospace; font-size:0.6rem;
+  text-transform:uppercase; letter-spacing:0.04em; padding:1px 7px; border-radius:10px; margin-left:6px;
+}
+.pill-ok{ background:var(--verified-soft); color:var(--verified); }
+.pill-warn{ background:var(--flag-soft); color:var(--flag); }
+
+/* --- Concept/comparison answer formatting --- */
+.answer-para{ margin:0 0 10px; line-height:1.6; }
+.answer-para:last-child{ margin-bottom:0; }
+.answer-list{ margin:0 0 10px; padding-left:20px; }
+.answer-list li{ margin-bottom:5px; line-height:1.55; }
+
+.scope-note{
+  border-left:3px solid var(--ink-soft);
+  background:var(--paper);
+  border-radius:0 8px 8px 0;
+  padding:10px 14px;
+  font-size:0.85rem;
+  color:var(--ink-soft);
+  font-style:italic;
+}

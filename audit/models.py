@@ -89,3 +89,29 @@ class ExplanationDisparity(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=['model_version', 'protected_attribute', 'feature_name'])]
+
+
+class ExplanationStability(models.Model):
+    """Stores how much a patient's SHAP-based explanation changes under a
+    small, realistic perturbation to their data - independent of whether the
+    final prediction changes. This is the STABILITY axis of explanation
+    quality, complementing ExplanationDisparity's FAIRNESS axis: disparity
+    asks "does the model reason differently by WHO the patient is?", this
+    asks "does the model's reasoning hold up under tiny changes to WHAT the
+    patient's data says?"
+    """
+    model_version = models.CharField(max_length=50)
+    encounter_id = models.IntegerField()
+    perturbation = models.CharField(max_length=100)  # e.g. "number_inpatient +1"
+    original_score = models.FloatField()
+    perturbed_score = models.FloatField()
+    score_shift = models.FloatField()
+    classification_flipped = models.BooleanField()
+    original_top3 = models.CharField(max_length=200)   # comma-joined base feature names
+    perturbed_top3 = models.CharField(max_length=200)
+    shared_top3_count = models.IntegerField()            # 0-3: how many top factors survived
+    jaccard_similarity = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['model_version', 'shared_top3_count'])]
