@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{% static 'audit/report.css' %}">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -159,6 +160,110 @@
       </div>
     {% endif %}
   </section>
+    <section class="panel">
+    <h1>5. Per-subgroup reliability</h1>
+    <p class="sub">
+      Real false-positive and false-negative rates for every individual race, gender and age
+      group, computed from the cached predictions and true outcomes of all
+      {{ reliability_meta.n_total }} test patients. This goes beyond one gap number per
+      attribute: it shows <em>who</em> the model gets wrong, and where there isn't enough data
+      to trust the answer.
+    </p>
+
+    {% if reliability_rows %}
+    <p class="note" style="margin-top:0;">
+      Patients are flagged high-risk here when their score is at least
+      <code>{{ reliability_meta.top_threshold|floatformat:3 }}</code> (the top 10% of scores).
+      At the default {{ reliability_meta.default_threshold }} threshold the model flags only a
+      tiny share of patients, which would make nearly every false-negative rate close to 100%.
+      <strong>False-positive rate</strong>: share of patients who were <em>not</em> readmitted but
+      were flagged. <strong>False-negative rate</strong>: share of patients who <em>were</em>
+      readmitted but were not flagged.
+      <span class="pill warn">&#9888; low sample</span> marks a group with fewer than
+      {{ reliability_meta.min_n }} patients or fewer than 30 actual readmissions; its bars are
+      faded because the rate is not trustworthy.
+    </p>
+
+    {% for key, block in reliability_charts.items %}
+    <div class="group-block">
+      <h2>{{ block.label }}</h2>
+      <div style="position:relative; height:280px; margin:6px 0 14px;">
+        <canvas id="rel-chart-{{ key }}"></canvas>
+      </div>
+    </div>
+    {% endfor %}
+
+    <table class="group-table" style="margin-top:6px;">
+      <thead>
+        <tr>
+          <th>Attribute</th><th>Group</th><th>Patients</th><th>Readmitted</th>
+          <th>False-positive rate</th><th>False-negative rate</th><th>Reliability</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reliability_rows %}
+        <tr{% if r.low_sample %} class="flagged"{% endif %}>
+          <td>{{ r.attribute_label }}</td>
+          <td>{{ r.subgroup }}</td>
+          <td>{{ r.n }}</td>
+          <td>{{ r.n_readmitted }}</td>
+          <td>{% if r.fpr_pct is None %}&mdash;{% else %}{{ r.fpr_pct }}%{% endif %}</td>
+          <td>{% if r.fnr_pct is None %}&mdash;{% else %}{{ r.fnr_pct }}%{% endif %}</td>
+          <td>{% if r.low_sample %}<span class="pill warn">&#9888; low sample</span>{% else %}<span class="pill ok">ok</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {{ reliability_charts|json_script:"reliability-data" }}
+    <script>
+    (function () {
+      var data = JSON.parse(document.getElementById('reliability-data').textContent);
+      var teal = '#2F6F62', rust = '#B5542B';
+      function faded(color, low) {
+        return low.map(function (isLow) { return isLow ? color + '55' : color; });
+      }
+      Object.keys(data).forEach(function (key) {
+        var b = data[key];
+        var canvas = document.getElementById('rel-chart-' + key);
+        if (!canvas || typeof Chart === 'undefined') { return; }
+        new Chart(canvas, {
+          type: 'bar',
+          data: {
+            labels: b.labels,
+            datasets: [
+              { label: 'False-positive rate (%)', data: b.fpr, backgroundColor: faded(teal, b.low) },
+              { label: 'False-negative rate (%)', data: b.fnr, backgroundColor: faded(rust, b.low) }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: { min: 0, max: 100, title: { display: true, text: 'Rate (%)' } }
+            },
+            plugins: {
+              legend: { position: 'bottom' },
+              tooltip: {
+                callbacks: {
+                  afterBody: function (items) {
+                    var i = items[0].dataIndex;
+                    var line = 'n = ' + b.n[i] + ', readmitted = ' + b.readmitted[i];
+                    return b.low[i] ? [line, 'Low sample: rate not reliable'] : [line];
+                  }
+                }
+              }
+            }
+          }
+        });
+      });
+    })();
+    </script>
+    {% else %}
+    <div class="empty-note">No predictions cached yet.</div>
+    {% endif %}
+  </section>
+
 </div>
 </body>
 </html>
+

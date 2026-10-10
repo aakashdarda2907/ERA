@@ -137,6 +137,10 @@ def report(request):
         'xgboost_version': XGBOOST_VERSION,
         'global_importance': _global_feature_importance(),
     }
+    reliability_rows, reliability_meta = _subgroup_reliability()
+    context['reliability_rows'] = reliability_rows
+    context['reliability_meta'] = reliability_meta
+    context['reliability_charts'] = _reliability_chart_data(reliability_rows)
     return render(request, 'audit/report.html', context)
 
 
@@ -317,3 +321,120 @@ def explanation_stability(request):
         'dramatic': dramatic,
     }
     return render(request, 'audit/stability.html', context)
+
+    
+
+# ---------------------------------------------------------------------------
+# Phase 3, Feature 1: per-subgroup reliability breakdown
+# ---------------------------------------------------------------------------
+MIN_SUBGROUP_N = 50          # subgroups smaller than this are flagged unreliable
+MIN_READMITTED = 30          # fewer actual readmissions than this makes the false-negative rate unreliable
+DEFAULT_THRESHOLD = 0.5      # the model's standard flagging threshold
+TOP_DECILE_SHARE = 0.10      # alternative: flag the highest-scoring 10%
+
+
+def _error_rates(pairs):
+    """pairs: list of (actual_readmitted 0/1, flagged True/False).
+    Returns (false_positive_rate, false_negative_rate); a rate is None when
+    its denominator is empty (e.g. no actual readmissions in the group)."""
+    tp = sum(1 for a, f in pairs if a == 1 and f)
+    fn = sum(1 for a, f in pairs if a == 1 and not f)
+    fp = sum(1 for a, f in pairs if a == 0 and f)
+    tn = sum(1 for a, f in pairs if a == 0 and not f)
+    fpr = fp / (fp + tn) if (fp + tn) else None
+    fnr = fn / (fn + tp) if (fn + tp) else None
+    return fpr, fnr
+
+
+def _subgroup_reliability():
+    """For every individual subgroup of race, gender and age bracket, compute
+    the real false-positive rate, false-negative rate and sample size from the
+    cached Patient + Prediction rows (no model is re-run).
+
+    Rates are computed at two thresholds: the default 0.5, and a top-10%
+    threshold (the score above which the 10% highest-scoring patients are
+    flagged). The default flags very few patients, so its error rates are
+    extreme; the top-10% view is the more informative one.
+    Returns (rows, meta).
+    """
+    from .models import Prediction
+
+    data = list(
+        Prediction.objects
+        .filter(model_version=XGBOOST_VERSION)
+        .values_list(
+            'risk_score',
+            'patient__readmitted_label',
+            'patient__race',
+            'patient__gender',
+            'patient__age_bracket',
+        )
+    )
+    if not data:
+        return [], None
+
+    scores = sorted(d[0] for d in data)
+    cut_index = min(int(len(scores) * (1 - TOP_DECILE_SHARE)), len(scores) - 1)
+    top_threshold = scores[cut_index]
+
+    meta = {
+        'n_total': len(data),
+        'default_threshold': DEFAULT_THRESHOLD,
+        'top_threshold': top_threshold,
+        'min_n': MIN_SUBGROUP_N,
+    }
+
+    # Group the patients: attribute -> subgroup -> [(actual, score), ...]
+    groups = {}
+    for score, actual, race, gender, age in data:
+        values = {
+            'race': race or 'Unknown',
+            'gender': gender or 'Unknown',
+            'age_bracket': age or 'Unknown',
+        }
+        for attr, value in values.items():
+            groups.setdefault(attr, {}).setdefault(value, []).append((actual, score))
+
+    rows = []
+    for attr_key, attr_label in PROTECTED_ATTRIBUTES:
+        for subgroup in sorted(groups.get(attr_key, {})):
+            members = groups[attr_key][subgroup]
+            fpr_d, fnr_d = _error_rates([(a, s >= DEFAULT_THRESHOLD) for a, s in members])
+            fpr_t, fnr_t = _error_rates([(a, s >= top_threshold) for a, s in members])
+            n = len(members)
+            n_readmitted = sum(1 for a, _ in members if a == 1)
+            rows.append({
+                'attribute': attr_key,
+                'attribute_label': attr_label,
+                'subgroup': subgroup,
+                'n': n,
+                'n_readmitted': n_readmitted,
+                'fpr_top': fpr_t, 'fnr_top': fnr_t,
+                'fpr_pct': None if fpr_t is None else round(fpr_t * 100, 1),
+                'fnr_pct': None if fnr_t is None else round(fnr_t * 100, 1),
+                'fpr_default': fpr_d, 'fnr_default': fnr_d,
+                'low_sample': n < MIN_SUBGROUP_N or n_readmitted < MIN_READMITTED,
+            })
+    return rows, meta
+
+
+def _reliability_chart_data(rows):
+    """Reshapes the flat subgroup rows into one block per protected attribute,
+    ready for the chart (percent values, unreliable subgroups marked) and for
+    the table underneath it."""
+    def pct(x):
+        return None if x is None else round(x * 100, 1)
+
+    blocks = {}
+    for attr_key, attr_label in PROTECTED_ATTRIBUTES:
+        sub = [r for r in rows if r['attribute'] == attr_key]
+        blocks[attr_key] = {
+            'label': attr_label,
+            'labels': [('\u26a0 ' if r['low_sample'] else '') + r['subgroup'] for r in sub],
+            'fpr': [pct(r['fpr_top']) for r in sub],
+            'fnr': [pct(r['fnr_top']) for r in sub],
+            'n': [r['n'] for r in sub],
+            'readmitted': [r['n_readmitted'] for r in sub],
+            'low': [r['low_sample'] for r in sub],
+        }
+    return blocks
