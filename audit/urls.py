@@ -8,5 +8,6 @@ urlpatterns = [
     path('risk-assessment/', views.risk_assessment, name='risk_assessment'),
     path('disparity/', views.explanation_disparity, name='explanation_disparity'),
         path('stability/', views.explanation_stability, name='explanation_stability'),
+        path('priority/', views.review_priority, name='review_priority'),
 ]
 

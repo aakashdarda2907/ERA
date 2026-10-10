@@ -1,0 +1,137 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WardAudit — Review Priority</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'audit/report.css' %}">
+<style>
+  .prio-table { width:100%; border-collapse:collapse; font-size:0.9rem; }
+  .prio-table th, .prio-table td { padding:9px 10px; border-bottom:1px solid var(--hairline); text-align:left; vertical-align:middle; }
+  .prio-table thead th {
+    font-family:'IBM Plex Mono', monospace; font-size:0.7rem; text-transform:uppercase;
+    letter-spacing:0.06em; color:var(--ink-soft); border-bottom:1px solid var(--ink-soft);
+    cursor:pointer; user-select:none; white-space:nowrap;
+  }
+  .prio-table thead th:hover { color:var(--ink); }
+  .prio-table thead th .arrow { opacity:0.5; margin-left:4px; }
+  .prio-table tr.top { background:var(--flag-soft); }
+  .prio-table td.num { font-family:'IBM Plex Mono', monospace; }
+  .prio-bar { background:var(--ledger); border-radius:4px; height:8px; width:120px; overflow:hidden; }
+  .prio-bar > span { display:block; height:100%; background:var(--flag); }
+  .band { font-size:0.8rem; color:var(--ink-soft); }
+  .band.close { color:var(--flag); font-weight:500; }
+  .flag-cell { font-size:0.8rem; }
+  .stat-row { display:flex; gap:12px; flex-wrap:wrap; margin:6px 0 16px; }
+  .stat { flex:1 1 150px; border:1px solid var(--hairline); border-radius:var(--radius); padding:12px 14px; background:var(--paper); }
+  .stat .v { font-family:'Newsreader', serif; font-size:1.6rem; font-weight:600; }
+  .stat .t { font-family:'IBM Plex Mono', monospace; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--ink-soft); }
+  .table-wrap { overflow-x:auto; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">Ward<em>Audit</em></div>
+    <div class="meta">review priority · UCI diabetes data · research prototype</div>
+  </header>
+
+  <nav class="crumb">
+    <a href="{% url 'audit:report' %}">&larr; Back to model &amp; fairness report</a>
+  </nav>
+
+  <section class="panel">
+    <h1>Review priority</h1>
+    {% if has_data %}
+    <p class="sub">
+      Which patients should a clinician look at first? Each of the {{ n_total }} test patients gets a
+      priority score: the model's risk score, multiplied by <strong>{{ boost }}</strong> if the patient
+      belongs to a group where the model is less reliable (see section 5 of the
+      <a href="{% url 'audit:report' %}">report</a>). The top rows are therefore patients who are both
+      high-risk <em>and</em> in a group the model has less evidence about.
+    </p>
+
+    <div class="stat-row">
+      <div class="stat"><div class="t">Patients ranked</div><div class="v">{{ n_total }}</div></div>
+      <div class="stat"><div class="t">Shown below</div><div class="v">{{ limit }}</div></div>
+      <div class="stat"><div class="t">Low-reliability among shown</div><div class="v">{{ n_flagged_in_top }}</div></div>
+      <div class="stat"><div class="t">Low-reliability groups</div><div class="v">{{ n_low_groups }}</div></div>
+    </div>
+
+    <div class="table-wrap">
+    <table class="prio-table" id="prio-table">
+      <thead>
+        <tr>
+          <th data-type="num">Rank<span class="arrow"></span></th>
+          <th data-type="num">Patient ID<span class="arrow"></span></th>
+          <th data-type="num">Risk %<span class="arrow"></span></th>
+          <th data-type="text">Confidence<span class="arrow"></span></th>
+          <th data-type="text">Reliability<span class="arrow"></span></th>
+          <th data-type="num">Priority<span class="arrow"></span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr{% if r.rank <= 10 %} class="top"{% endif %}>
+          <td class="num" data-sort="{{ r.rank }}">{{ r.rank }}</td>
+          <td class="num" data-sort="{{ r.encounter_id }}">{{ r.encounter_id }}</td>
+          <td class="num" data-sort="{{ r.risk_pct }}">{{ r.risk_pct }}%</td>
+          <td data-sort="{{ r.band_key }}"><span class="band {{ r.band_key }}">{{ r.band_label }}</span></td>
+          <td class="flag-cell" data-sort="{% if r.flagged %}0{% else %}1{% endif %}">
+            {% if r.flagged %}<span class="pill warn">&#9888; low reliability</span><br>{{ r.flagged_groups }}{% else %}<span class="pill ok">ok</span>{% endif %}
+          </td>
+          <td data-sort="{{ r.priority }}">
+            <div class="num" style="font-family:'IBM Plex Mono', monospace;">{{ r.priority }}</div>
+            <div class="prio-bar"><span style="width:{{ r.priority_bar }}%;"></span></div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+
+    <p class="note">
+      Click a column heading to sort. The ten highest-priority rows are tinted. Risk % is the model's
+      score, not a calibrated probability. <strong>Confidence</strong> describes how far the score is
+      from the 0.50 boundary; patients <em>relatively close</em> to it are the ones the model is least
+      sure about. The {{ boost }} boost is a deliberate triage rule, not a statistical adjustment: it
+      moves patients from groups with few readmissions or few patients ahead of equally risky
+      patients from well-covered groups, so a human checks them sooner. Groups currently flagged:
+      {% for g in low_group_names %}{{ g }}{% if not forloop.last %}, {% endif %}{% empty %}none{% endfor %}.
+      Use <code>?n=100</code> in the address to show more rows (maximum 200).
+    </p>
+    <script>
+    (function () {
+      var table = document.getElementById('prio-table');
+      if (!table) { return; }
+      var tbody = table.tBodies[0];
+      var heads = table.tHead.rows[0].cells;
+      Array.prototype.forEach.call(heads, function (th, col) {
+        var asc = true;
+        th.addEventListener('click', function () {
+          var numeric = th.getAttribute('data-type') === 'num';
+          var rows = Array.prototype.slice.call(tbody.rows);
+          rows.sort(function (a, b) {
+            var x = a.cells[col].getAttribute('data-sort');
+            var y = b.cells[col].getAttribute('data-sort');
+            if (numeric) { x = parseFloat(x); y = parseFloat(y); return asc ? x - y : y - x; }
+            return asc ? x.localeCompare(y) : y.localeCompare(x);
+          });
+          rows.forEach(function (r) { tbody.appendChild(r); });
+          Array.prototype.forEach.call(heads, function (h) { h.querySelector('.arrow').textContent = ''; });
+          th.querySelector('.arrow').textContent = asc ? '▲' : '▼';
+          asc = !asc;
+        });
+      });
+    })();
+    </script>
+    {% else %}
+    <div class="empty-note">No predictions cached yet.</div>
+    {% endif %}
+  </section>
+</div>
+</body>
+</html>

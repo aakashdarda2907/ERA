@@ -438,3 +438,99 @@ def _reliability_chart_data(rows):
             'low': [r['low_sample'] for r in sub],
         }
     return blocks
+
+
+
+# ---------------------------------------------------------------------------
+# Phase 3, Feature 2: fairness-aware review priority dashboard
+# ---------------------------------------------------------------------------
+RELIABILITY_BOOST = 1.2      # priority multiplier for patients in a low-reliability subgroup
+DEFAULT_PRIORITY_ROWS = 50
+MAX_PRIORITY_ROWS = 200
+
+
+def _confidence_band(score):
+    """How far a score sits from the 0.50 boundary, using the same bands the
+    chatbot uses: far (<0.15 or >0.85), clearly away (0.15-0.30 / 0.70-0.85),
+    relatively close (0.30-0.70). Returns (css_key, label)."""
+    if score < 0.15 or score > 0.85:
+        return 'far', 'Far from the 0.50 boundary'
+    if score < 0.30 or score > 0.70:
+        return 'clear', 'Clearly away from the boundary'
+    return 'close', 'Relatively close to the boundary'
+
+
+def review_priority(request):
+    """Ranks every cached test patient by a review-priority score and shows
+    the top N. Priority = risk_score, multiplied by RELIABILITY_BOOST if the
+    patient belongs to any subgroup flagged as low-reliability by
+    _subgroup_reliability() (Feature 1). So the top rows are patients who are
+    both high-risk AND in a group the model is less reliable for.
+    """
+    from .models import Prediction
+
+    reliability_rows, reliability_meta = _subgroup_reliability()
+    if not reliability_rows:
+        return render(request, 'audit/priority.html', {'has_data': False})
+
+    low_groups = {
+        (r['attribute'], r['subgroup']) for r in reliability_rows if r['low_sample']
+    }
+
+    try:
+        limit = int(request.GET.get('n', DEFAULT_PRIORITY_ROWS))
+    except ValueError:
+        limit = DEFAULT_PRIORITY_ROWS
+    limit = max(1, min(limit, MAX_PRIORITY_ROWS))
+
+    data = (
+        Prediction.objects
+        .filter(model_version=XGBOOST_VERSION)
+        .values_list(
+            'patient_id', 'risk_score',
+            'patient__race', 'patient__gender', 'patient__age_bracket',
+        )
+    )
+
+    scored = []
+    for encounter_id, score, race, gender, age in data:
+        groups = [
+            ('race', race or 'Unknown'),
+            ('gender', gender or 'Unknown'),
+            ('age_bracket', age or 'Unknown'),
+        ]
+        flagged = [(a, g) for a, g in groups if (a, g) in low_groups]
+        priority = score * (RELIABILITY_BOOST if flagged else 1.0)
+        scored.append((priority, encounter_id, score, flagged))
+
+    scored.sort(key=lambda t: t[0], reverse=True)
+    top = scored[:limit]
+    max_priority = top[0][0] if top else 1.0
+
+    rows = []
+    for rank, (priority, encounter_id, score, flagged) in enumerate(top, start=1):
+        band_key, band_label = _confidence_band(score)
+        rows.append({
+            'rank': rank,
+            'encounter_id': encounter_id,
+            'risk_pct': round(score * 100, 1),
+            'priority': round(priority, 3),
+            'priority_bar': round(priority / max_priority * 100, 1) if max_priority else 0,
+            'band_key': band_key,
+            'band_label': band_label,
+            'flagged': bool(flagged),
+            'flagged_groups': ', '.join(f'{g} ({a})' for a, g in flagged),
+        })
+
+    context = {
+        'has_data': True,
+        'rows': rows,
+        'limit': limit,
+        'boost': RELIABILITY_BOOST,
+        'n_total': len(scored),
+        'n_flagged_in_top': sum(1 for r in rows if r['flagged']),
+        'n_low_groups': len(low_groups),
+        'meta': reliability_meta,
+        'low_group_names': sorted(f'{g} ({a})' for a, g in low_groups),
+    }
+    return render(request, 'audit/priority.html', context)
